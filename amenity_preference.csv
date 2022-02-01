@@ -1,0 +1,50 @@
+amenity,n,purpose_label,amenity_value,amenity_quantity,critical_label
+nursing_home,16,adult care,3,1,0
+convenience,931,buy goods,8,5,1
+supermarket,880,buy goods,10,1,1
+clothes,280,buy goods,5,1,0
+department_store,238,buy goods,5,1,0
+mall,128,buy goods,5,1,0
+shoe_shop,65,buy goods,3,1,1
+market_place,42,buy goods,5,1,1
+outdoor_shop,30,buy goods,3,1,0
+greengrocer,17,buy goods,7,2,0
+restaurant,2602,buy meals,10,20,1
+fast_food,1605,buy meals,5,5,0
+cafe,477,buy meals,8,5,0
+beverages,135,buy meals,6,5,0
+bakery,74,buy meals,8,2,0
+bank,918,buy services,9,1,0
+car_dealership,787,buy services,3,1,0
+post_office,297,buy services,5,1,0
+playground,5038,child care,8,1,1
+kindergarten,122,child care,10,1,1
+fire_station,643,critical amenity,10,1,1
+police,154,critical amenity,10,1,1
+swimming_pool,15254,exercise,3,1,0
+sports_centre,535,exercise,3,1,0
+dog_park,242,exercise,3,1,0
+library,366,general errands,9,1,1
+car_wash,321,general errands,8,1,1
+laundry,119,general errands,8,1,1
+atm,5,general errands,8,1,1
+hospital,213,health care visit,10,1,1
+pharmacy,202,health care visit,5,2,0
+doctors,191,health care visit,5,1,0
+dentist,144,health care visit,5,1,0
+optician,31,health care visit,5,1,0
+park,7156,recreational activities,10,3,1
+camp_site,671,recreational activities,3,1,0
+picnic_site,625,recreational activities,3,1,0
+golf_course,410,recreational activities,3,1,0
+attraction,287,recreational activities,1,1,0
+museum,286,recreational activities,3,1,0
+theatre,259,recreational activities,3,1,0
+bar,177,recreational activities,7,2,0
+cinema,170,recreational activities,7,1,0
+stadium,133,recreational activities,6,1,0
+pub,92,recreational activities,5,1,0
+nightclub,34,recreational activities,2,1,0
+school,4122,school,10,1,1
+college,112,school,5,1,0
+university,98,school,5,1,0

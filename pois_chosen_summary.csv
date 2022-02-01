@@ -1,0 +1,50 @@
+amenity,n,purpose_label
+swimming_pool,15254,exercise
+park,7156,recreational activities
+playground,5038,child care
+school,4122,school
+restaurant,2602,buy meals
+fast_food,1605,buy meals
+convenience,931,buy goods
+bank,918,buy services
+supermarket,880,buy goods
+car_dealership,787,buy services
+camp_site,671,recreational activities
+fire_station,643,critical amenity
+picnic_site,625,recreational activities
+sports_centre,535,exercise
+cafe,477,buy meals
+golf_course,410,recreational activities
+library,366,general errands
+car_wash,321,general errands
+post_office,297,buy services
+attraction,287,recreational activities
+museum,286,recreational activities
+clothes,280,buy goods
+theatre,259,recreational activities
+dog_park,242,exercise
+department_store,238,buy goods
+hospital,213,health care visit
+pharmacy,202,health care visit
+doctors,191,health care visit
+bar,177,recreational activities
+cinema,170,recreational activities
+police,154,critical amenity
+dentist,144,health care visit
+beverages,135,buy meals
+stadium,133,recreational activities
+mall,128,buy goods
+kindergarten,122,child care
+laundry,119,general errands
+college,112,school
+university,98,school
+pub,92,recreational activities
+bakery,74,buy meals
+shoe_shop,65,buy goods
+market_place,42,buy goods
+nightclub,34,recreational activities
+optician,31,health care visit
+outdoor_shop,30,buy goods
+greengrocer,17,buy goods
+nursing_home,16,adult care
+atm,5,general errands

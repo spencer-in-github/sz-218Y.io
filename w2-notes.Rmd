@@ -1,0 +1,141 @@
+---
+title: "w2-lab"
+author: "Spencer Zhang"
+date: "1/12/2022"
+output: bookdown::html_document2
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r library}
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(tidycensus)
+
+census_api_key("c8aa67e4086b4b5ce3a8717f59faa9a28f611dab") #puts key in your R environment ".Renviron" file
+```
+
+```{r bay-info-data}
+bay_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma"
+  )
+
+bay_counties <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME %in% bay_county_names)
+
+smc_county <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME == "San Mateo")
+
+ca_pumas <-
+  pumas("CA", cb = T, progress_bar = F)
+
+
+bay_pumas <-
+  ca_pumas %>% 
+  st_centroid() %>% 
+  .[bay_counties, ] %>% 
+  st_set_geometry(NULL) %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+
+smc_puma <-
+  bay_pumas %>%
+  st_centroid() %>%
+  .[smc_county, ] %>%
+  st_set_geometry(NULL) %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+```
+
+```{r housing-data}
+ca_pums <- get_pums(
+  variables = c(
+    "PUMA",
+    "GRNTP", #gross rent, use ADJHSG to convert to constant dollar
+    "SMOCP", #selected monthly owner cost; convert ADJHSG
+    "HINCP", #household income; ADJINC
+    "ADJHSG", #adjustment for housing cost
+    "ADJINC" #adjustment for income and earning
+  ),
+  state = "CA",
+  year = 2019,
+  survey = "acs5"
+)
+
+saveRDS(ca_pums, "ca_pums.rds")
+
+bay_pums <-
+  ca_pums %>% 
+  filter(PUMA %in% bay_pumas$PUMACE10)
+
+saveRDS(bay_pums, "bay_pums.rds")
+```
+
+```{r}
+smc_pums <-
+  bay_pums %>%
+  filter(PUMA %in% smc_puma$PUMACE10)
+```
+
+
+```{r}
+library(tidyverse)
+library(esri2sf)
+
+epa_zoning <- esri2sf("https://services8.arcgis.com/0IC8hha3hgQkmGoa/arcgis/rest/services/EastPaloAltoZoning_2021_WFL1/FeatureServer/1")
+
+smc_exemption <- read_csv("https://datahub.smcgov.org/api/views/pmvw-bs84/rows.csv?accessType=DOWNLOAD")
+
+epa_exemption <- smc_exemption %>%
+  mutate(
+    APN = `Parcel Number` %>%
+      str_replace_all("-", "") #replace a with b! in this case just delete -
+    #stringr: wonderful package to play with strings 
+  ) %>%
+  filter(APN %in% epa_zoning$APN) %>%
+  left_join(epa_zoning) %>%
+  st_as_sf() %>% #change into a geometry object 
+  filter(
+    New_Zone == "R-LD"
+  )
+```
+
+```{r}
+leaflet() %>%
+  addProviderTiles(provider = providers$CartoDB.Positron) %>%
+  addPolygons(
+    data = epa_exemption %>%
+      filter(`Fiscal Year` == "2018/2019"),
+    fillColor = "yellow",
+    color = "black",
+    weight = 0.5
+    ) %>%
+  addPolygons(
+    data = epa_exemption %>%
+      filter(`Fiscal Year` == "2018/2019") %>%
+      filter(Exemption %in% c(5600,7000)),
+    fillColor = "blue",
+    color = "black",
+    weight = 0.5,
+    fillOpacity = 1
+    )
+#observation: very homogeneous in distribution
+```
+

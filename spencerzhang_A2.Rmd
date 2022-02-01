@@ -1,0 +1,797 @@
+---
+title: "Complete community analysis - San Francisco Case Study"
+author: "Spencer Zhang"
+date: "2/1/2022"
+output: bookdown::html_document2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+```{r library}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(censusapi)
+library(readxl)
+library(mapview)
+library(leaflet)
+library(mapboxapi)
+library(readxl)
+```
+
+Recent years in urban planning, concepts such as "15-min city," "Garden city movement," "smart growth," and etc have emerged with the intent to address quality of life in communities as the population experience fast urbanization and community growth worldwide. While most communities are witnessing fast city development and population growth, do our communities have all necessary amenities to support its residents? Do our communities have the infrastructure they need to support all their residing people in a sustainable, equitable, and accessible way? In the following commentary, the concept of a "complete community" is chosen as a standard for accessing the amenity planning of a neighborhood. A complete community is defined as all residents can reach their desired amenities during their daily life, within a reasonable travel time, using their preferred travel mode. A "completeness" score is set up for assessment and cross-region comparison. Now let's dive into the analysis.
+
+# Background and Community of Interest
+
+The Bay Area, as one of the most fast-growing urban communities in the world, is home to approximately 7.75 million people with diverse demographic profiles. Today, we look closely into the Bay and more deeply into the community of San Francisco, the cultural, commercial, and financial center in the U.S., attracting more and more talents to flow in as we talk.
+
+```{r nhts-data}
+# path <- "/Volumes/GoogleDrive/Shared drives/SFBI/Data Library/NHTS/nhts17-caltrans-tsdc-download/"
+# survey_household <- read_csv(paste0(path,"survey_household.csv"))
+# 
+# survey_person <- read.csv(paste0(path,"survey_person.csv")) # read_csv() appeared to trigger an error because of a formatting issue, so my second attempt is always the base R version of this function, read.csv(). It generally gives the same result.
+# 
+# survey_trip <- read_csv(paste0(path,"survey_trip.csv"))
+# 
+# survey_person_weights_7day <- read_csv(paste0(path,"survey_person_weights_7day.csv"))
+# 
+# nhts_lookup <- read_excel(
+#   paste0(path,"data_elements.xlsx"), 
+#   sheet = "Value Lookup"
+# )
+```
+
+```{r sf-geo-data, eval = F}
+# sf_counties <-
+#   counties("CA", cb = T, progress_bar = F) %>%
+#   filter(NAME == "San Francisco")
+# 
+# cbsas <- core_based_statistical_areas(cb = T, progress_bar = F)
+# 
+# sf_cbsas <-
+#   cbsas %>%
+#   .[sf_counties %>% st_centroid(), ]
+# 
+# saveRDS(sf_cbsas, "sf_cbsas.rds")
+```
+
+```{r map-of-studied-area, fig.align='center',fig.cap="The community centering San Francisco"}
+# sf_cbsas <- readRDS("sf_cbsas.rds")
+# leaflet(sf_cbsas) %>% 
+#   addTiles() %>% 
+#   addPolygons(
+#     label = ~paste0(GEOID,": ",NAME)
+#   )
+```
+
+```{r sf-travel-trip-data}
+# sf_trips <-
+#   survey_trip %>% 
+#   left_join(
+#     survey_person,
+#     by = c("sampno","perno")
+#   ) %>% 
+#   left_join(
+#     survey_person_weights_7day %>% 
+#       select(
+#         sampno,
+#         perno,
+#         wttrdfin
+#       ),
+#     by = c("sampno","perno")
+#   ) %>% 
+#   left_join(
+#     survey_household %>% select(
+#       sampno,
+#       hh_cbsa
+#     )
+#   ) %>% 
+#   filter(hh_cbsa %in% sf_cbsas$GEOID)
+```
+
+```{r purpose-lookup}
+# purpose_lookup <-
+#   nhts_lookup %>% 
+#   filter(NAME == "WHYTO") %>% 
+#   select(VALUE, LABEL) %>% 
+#   mutate(
+#     VALUE = as.numeric(VALUE),
+#     LABEL = factor(LABEL, levels = LABEL)
+#   )
+# 
+# purpose_lookup
+```
+
+```{r mode-lookup}
+# mode_lookup <-
+#   nhts_lookup %>% 
+#   filter(NAME == "TRPTRANS") %>% 
+#   select(VALUE, LABEL) %>% 
+#   mutate(
+#     VALUE = as.numeric(VALUE),
+#     LABEL = factor(LABEL, levels = LABEL)
+#   )
+# 
+# mode_lookup
+```
+
+```{r}
+# sf_trips_summary_whyto <-
+#   sf_trips %>% 
+#   left_join(
+#     purpose_lookup,
+#     by = c("whyto" = "VALUE")
+#   ) %>% 
+#   rename(purpose_label = LABEL) %>% 
+#   left_join(
+#     mode_lookup,
+#     by = c("trptrans" = "VALUE")
+#   ) %>% 
+#   rename(mode_label = LABEL) %>% 
+#   mutate(
+#     tripmiles_wt =
+#       trpmiles * wttrdfin
+#   ) %>% 
+#   group_by(
+#     purpose_label,
+#     mode_label
+#   ) %>% 
+#   summarize(
+#     tripmiles_wt = sum(tripmiles_wt),
+#     trips = sum(wttrdfin),
+#     median_time = median(trvlcmin)
+#   ) %>% 
+#   ungroup()
+```
+
+```{r amenity-reference}
+# purpose_label <- unique(sf_trips_summary_whyto$purpose_label) %>%
+#   as.data.frame(.) %>%
+#   mutate(.,
+#     purpose_label = .
+#   ) %>%
+#   select(!.) %>%
+#   mutate(
+#     join_field = c("other",
+#       "home","home",
+#       "work","work","work",
+#       "visit acquaintance",
+#       "other",
+#       "school","child care",
+#       "adult care",
+#       "buy goods",
+#       "buy services",
+#       "buy meals",
+#       "general errands",
+#       "recreational activities",
+#       "exercise",
+#       "visit acquaintance",
+#       "health care visit",
+#       "regilious activities",
+#       "other"
+#   )) 
+# 
+# purpose_label
+```
+
+```{r eval = F}
+# sf_trips_summary <- sf_trips_summary_whyto %>% 
+#   left_join(purpose_label) %>%
+#   group_by(join_field, mode_label) %>%
+#   summarize(
+#     median_time = sum(median_time*trips)/sum(trips),
+#     trips = sum(trips),
+#     tripmiles_wt = sum(tripmiles_wt)
+#   ) %>% rename(purpose_label = join_field)
+# 
+# saveRDS(sf_trips_summary,"sf_trips_summary.rds")
+```
+
+First we look closely into the current travel behaviors of the San Francisco residents, including typical travel length, purposes, and modes of transportation. The National Household Travel Survey (NHTS) supported by U.S. Department of Transportation provides detailed information in the Bay Area. As shown in Fig \@ref(fig:sf-trips-summary-plot), the median time duration of San Francisco residents' trips ranges from 10 to 30 mins, with varied prefered means for different purpose of travel.
+
+```{r sf-trips-summary-plot, fig.align='center', fig.cap="San Francisco residents travel patterns"}
+sf_trips_summary <- readRDS("sf_trips_summary.rds")
+
+# sf_trips_summary <- sf_trips_summary %>%
+#   group_by(purpose_label,mode_label) %>%
+#   summarize(
+#     median_time = median_time*trips/sum(trips),
+#     trips = sum(trips),
+#     tripmiles_wt = sum(tripmiles_wt)
+#   )
+
+sf_trips_summary %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (median_time) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "San Francisco travel patterns, 2017",
+    subtitle = "Text values are median time of trip length. Tile color shows million of trips per year, color darkening from lower number to higher. Trips are allocated based on 50/50 split\nof origin/destination purpose."
+  )
+```
+
+We choose three modes of travel as preferred travel modes for all following analysis: walking, cycling, and driving. The average travel time for the given modes for different purposes varies. In order to estimate SF population's perception of a "reasonable" travel time, we use the current median travel time as a standard for each mode-purpose combination, shown in Fig \@ref(fig:trips-summary-plot-for-selected-modes).
+
+```{r trips-summary-plot-for-selected-modes, fig.align='center', fig.cap="San Francisco travel patterns for selected travel modes, 2017"}
+sf_trips_preference <- sf_trips_summary %>%
+  filter(mode_label %in% c("Walk", "Bicycle", "Car")) 
+sf_trips_preference %>%
+  ggplot(
+    aes(
+      x = purpose_label,
+      y = reorder(mode_label, desc(mode_label))
+    )
+  ) +
+  geom_tile(
+    aes(fill = trips)
+  ) + 
+  geom_text(
+    aes(label = (median_time) %>% round()), 
+    color = "white",
+    size = 2
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  ) + 
+  labs(
+    x = "Trip Purpose",
+    y = "Trip Mode",
+    title = "San Francisco travel patterns for selected travel modes, 2017",
+    subtitle = "Values are millions of trips per year. Trips are allocated based on 50/50 split\nof origin/destination purpose."
+  )
+```
+
+# Amenity/POIs of interest
+
+```{r path-set}
+# path <- "/Volumes/GoogleDrive/Shared drives/SFBI/Data Library"
+# pois <- st_read("/Volumes/GoogleDrive/Shared drives/SFBI/Data Library/OSM/gis_osm_pois_a_free_1.shp")
+# #open street map data
+```
+
+```{r pois-summary-unfiltered}
+# pois_summary <- pois %>%
+#   st_drop_geometry() %>%
+#   group_by(fclass) %>%
+#   count() %>%
+#   arrange(desc(n))
+```
+
+```{r chosen-pois-summary}
+# pois_chosen_summary <- pois_summary %>%
+#   mutate(
+#     join_field = case_when(
+#       fclass %in% c("") ~ "home",
+#       fclass %in% c("") ~ "work",
+#       fclass %in% c("school","college","university") ~ "school",
+#       fclass %in% c("playground", "kindergarten") ~ "child care",
+#       fclass %in% c("nursing_home") ~ "adult care",
+#       fclass %in% c("convenience","supermarket","market_place","greengrocer", "clothes", "department_store", "mall","shoe_shop","outdoor_shop") ~ "buy goods",
+#       fclass %in% c("bank","car_dealership", "post_office") ~ "buy services",
+#       fclass %in% c("restaurant","fast_food","food court", "cafe","beverages","bakery") ~ "buy meals",
+#       fclass %in% c("library", "car_wash","laundry", "atm") ~ "general errands",
+#       fclass %in% c("park","camp_site","picnic_site","golf_course", "attraction","museum","theatre","bar","cinema","stadium","pub","nightclub") ~ "recreational activities",
+#       fclass %in% c("swimming_pool","sports_centre","dog_park") ~ "exercise",
+#       fclass %in% c("") ~ "visit acquaintance",
+#       fclass %in% c("hospital","pharmacy","doctors","dentist","optician") ~ "health care visit",
+#       fclass %in% c("") ~ "regilious activities",
+#       fclass %in% c("fire_station","police") ~ "critical amenity",
+#       is.character(fclass) ~ "other"
+#     )
+#   ) %>%
+#   filter(join_field != "other") %>%
+#   rename(amenity = fclass, purpose_label = join_field)
+# 
+# saveRDS(pois_chosen_summary, "pois_count_purpose_summary.rds")
+# pois_count_purpose_summary <-readRDS("pois_count_purpose_summary.rds")
+# pois_filter <- pois %>%
+#   rename(amenity = fclass) %>%
+#   filter(amenity %in% pois_count_purpose_summary$amenity)
+# 
+# #check all pois of chosen amenity
+# saveRDS(pois_filter, "pois_filter.rds")
+```
+
+In an ideal complete community, residents are able to get to their desired amenities within a reasonable travel time using their preferred travel mode, to fulfill their material, physical, and cultural needs, as defined by Wikipedia. From OpenStreetMap, the collaborative geographic database, we can extract all amenity names, types, and locations, referred to as Places of Interest (POIs) from here. We filtered 49 types of POIs as our amenities of interests, covering residents' regular material, physical, and cultural needs, each categorized to a common travel purpose described in NTHS dataset. The complete POI list is shown in Table \@ref(tab:table-of-chosen-pois).
+
+```{r table-of-chosen-pois}
+pois_count_purpose_summary <- readRDS("pois_count_purpose_summary.rds")
+knitr::kable(pois_count_purpose_summary, caption = "The summary table of chosen POIs and corresponding travel purposes")
+```
+
+```{r map-of-chosen-pois, fig.align='center', fig.cap="The Map of chosen POIs in the Bay"}
+#The filtered POIs in the Bay are shown in the map in Fig \@ref(fig:map-of-chosen-pois). Compared to the rest of the Bay, San Francisco as a dense urban city, is populated with POIs. Do its amenities distribute in a travel friendly way for its local residents? Let's dive in.
+
+# pois_filter <- readRDS("pois_filter.rds")
+# mapview(pois_filter, zcol = "amenity")
+```
+
+# Community of interest
+
+Filtered out the amenities of interest for our analysis, now let's look closely at the community of interest. We look at SF at block-level, given its dense population and vast amount of amenities. The block-level map is shown in Fig \@ref(fig:sf-blocks-map).
+
+```{r sf-blocks-map, fig.align='center', fig.cap= "Study object - San Francisco block level map"}
+sf_cbs <- readRDS("sf_cbs.rds")
+mapview(sf_cbs)
+```
+
+```{r sf-blocks-data, eval = F}
+# sf_cbs <- blocks("CA", "San Francisco") %>%
+#   st_transform(st_crs(pois))
+# 
+# saveRDS(sf_cbs, "sf_cbs.rds")
+```
+
+The chosen POIs distribute sparsely on the entire SF city, shown in Fig \@ref(fig:sf-pois-map). Given the map alone, we can't really make any sound judgement of how the city of San Francisco is set up for its local residents. Therefore, we'd like to design a quantitative methodology computing a "completeness score" for each block, based on its surrounding amenities' location and time of travel by the three travel modes described earlier.
+
+```{r sf-pois-map, fig.align='center', fig.cap="The Map of POIs in San Francisco"}
+# sf_boundary <- counties("CA") %>% 
+#   filter(NAME == "San Francisco") %>% 
+#   st_transform(st_crs(pois_filter))
+# 
+# sf_pois <- pois_filter %>% 
+#   .[sf_boundary, ]
+#   
+# # mapview(sf_boundary)
+# saveRDS(sf_pois, "sf_pois.rds")
+sf_pois <- read_rds("sf_pois.rds")
+mapview(sf_pois, zcol = "amenity")
+```
+
+```{r eval = F}
+# isochrones <- c("walking","driving", "cycling") %>% 
+#   map_dfr(function(x){
+#     
+#     mb_isochrone(
+#       sf_cbs,
+#       profile = x,
+#       time = c(5,10,15)
+#     ) %>% 
+#       mutate(mode = x)
+#     
+#   })
+# saveRDS(isochrones, "sf_isochrones.rds"
+```
+
+```{r isochrones-loading}
+# isochrones <- readRDS("sf_isochrones.rds")
+# mapview(isochrones)
+```
+
+```{r eval = F}
+# sf::sf_use_s2(FALSE)
+# access_raw <- isochrones %>% 
+#   st_make_valid() %>%
+#   st_join(pois_filter) %>% 
+#   filter(!is.na(osm_id)) %>% 
+#   st_drop_geometry()
+# saveRDS(access_raw, "access_raw.rds")
+```
+
+```{r}
+# access_raw <- readRDS("access_raw.rds")
+```
+
+# Completeness scoring
+
+An amenity value is defined as such:
+
+$$
+Value = e^{(-(𝞴_{amenity}𝜈_{rank})(𝞴_{mode}t))}
+$$
+
+where value is the numeric value assigned for the given amenity; 𝜆 is the decay value for amenity as the number of amenity increases and for travel modes where we assume people prefer walking over cycling over driving; 𝜈 is the rank of amenities under the same type; t is the time required for travel to reach the amenity using the indicated travel mode. Combining the equation, we would have a value for each amenity within the reachable distance from the centroid of the block, and the final completeness score is computed by summing the values for all reachable amenities. A completeness score is computed for each block in San Francisco. We also established an ideal complete community in order to compute a baseline completeness score to compare with the blocks in San Francisco.
+
+The values for each parameter is set in the following way. The mode value is given as 1, 0.7, 0.5 for walking, cycling, and driving. The reasonable travel time is estimated from the NHST travel data in SF in Fig \@ref(fig:trips-summary-plot-for-selected-modes), and the reasonable travel time for different POIs is different based on its common use purpose as shown in Table \@ref(tab:table-of-chosen-pois). The number of amenities desired by residents is arbitrary assumption based on common sense. Isochrones for each travel mode and time for the desired amenity are computed from the centroids of each block to circle all reachable POIs. The final score is normalized by diving by the ideal community's score, with 1 as the baseline score.
+
+```{r}
+# amenity_preference <- read_csv("amenity_preference.csv") %>% 
+#   mutate(
+#     amenity_decay = -log(0.5)/(amenity_quantity),
+#     amenity_value = amenity_value/10
+#   )
+# 
+# mode_preference <- sf_trips_preference %>%
+#   select(-starts_with("t")) %>%
+#   rename(mode_reasonable = median_time) %>%
+#   mutate(
+#     mode_value = case_when(
+#       mode_label == "Car" ~ 0.5,
+#       mode_label == "Bicycle" ~ 0.7,
+#       mode_label == "Walk" ~ 1
+#     ),
+#     mode_decay = -log(0.5)/mode_reasonable
+#   ) %>%
+#   mutate(mode = case_when(
+#       mode_label == "Car" ~ "driving",
+#       mode_label == "Bicycle" ~ "cycling",
+#       mode_label == "Walk" ~ "walking"
+#     )) %>%
+#   select(-mode_label)
+# 
+# preference <- amenity_preference %>%
+#   left_join(mode_preference)
+```
+
+```{r}
+# complete_temp <- access_raw %>% 
+#   left_join(
+#     preference,
+#     by = c("amenity","mode")
+#   ) %>%
+#   group_by(id,mode,amenity) %>% 
+#   arrange(time) %>%
+#   mutate(
+#     amenity_rank = row_number() -1
+#   ) %>%
+#   ungroup()
+```
+
+```{r}
+# complete_baseline <- data.frame(
+#   amenity = amenity_preference$amenity %>%
+#     rep(., amenity_preference$amenity_quantity)
+# ) %>%
+#   left_join(amenity_preference) %>%
+#   group_by(amenity) %>%
+#   mutate(
+#     amenity_rank = row_number() - 1
+#   ) %>%
+#   ungroup() %>%
+#   mutate(
+#     score = amenity_value *exp(-amenity_rank*amenity_decay) * 0.5
+#   )
+# 
+# sum(complete_baseline$score)
+
+# saveRDS(complete_baseline, "SF_complete_baseline.RDS")
+
+```
+
+```{r}
+# complete_modes <- complete_temp %>% 
+#   mutate(
+#     score = amenity_value * exp(-amenity_rank * amenity_decay) * exp(-time * mode_decay)
+#   ) %>% 
+#   group_by(id, mode) %>% 
+#   arrange(desc(score)) %>% 
+#   filter(!duplicated(osm_id)) %>%
+#   summarize(
+#     score = sum(score, na.rm=T)/sum(complete_baseline$score)
+#   )
+# 
+# complete_total <- complete_temp %>% 
+#   mutate(
+#     score = amenity_value * exp(-amenity_rank * amenity_decay) * mode_value * exp(-time * mode_decay)
+#   ) %>% 
+#   group_by(id) %>% 
+#   arrange(desc(score)) %>% 
+#   filter(!duplicated(osm_id)) %>% 
+#   summarize(
+#     score = sum(score, na.rm = T)/sum(complete_baseline$score)
+#   ) %>% 
+#   mutate(mode = "total")
+# 
+# complete <- rbind(
+#   complete_modes,
+#   complete_total
+# )
+```
+
+The results can be found in the maps below. 
+
+```{r total, fig.cap="The completeness score map for three traval modes in San Francisco"}
+# Shown in Fig \@ref(fig:total), SF blocks show average scores higher than the base case, indicating most of its residents can reach most of the desired amenities.
+
+# complete_map <- complete %>% 
+#   pivot_wider(
+#     names_from = "mode",
+#     values_from = "score"
+#   ) %>% 
+#   cbind(sf_cbs %>% select(GEOID10)) %>% 
+#   st_as_sf()
+# 
+# saveRDS(complete_map, "sf_complete_map.rds")
+complete_map <- read_rds("sf_complete_map.rds")
+
+# mapview(complete_map, zcol = "total")
+```
+
+Not all residents have access to cars and we wish to get people off of the need of owning a car in future sustainable city planning. Look at Fig \@ref(fig:walking) showing the accessibility where walking is the only travel option, the scores for each blocks drop significantly, with the northeast center of SF showing a significantly lower score. Note the color scale is different from Fig \@ref(fig:total).
+
+```{r walking, fig.cap="The completeness score map for walking in San Francisco"}
+mapview(complete_map, zcol = "walking")
+```
+
+If we change the travel mode to cycling, the scores go up significantly (Fig \@ref(fig:cycling)). However, keep in mind SF's uphills and downhills, this may not be a preferred and accessible travel mode for certain populations. Look at the northeast center of SF, the scores went from below average for walking to well over average. This may indicate certain types of amenities in this area are not evenly distributed. People can not easily get there by walking, but given a faster travel mode and a longer time, most amenities can be reach within this area.
+
+```{r cycling, fig.cap="The completeness score map for cycling in San Francisco"}
+mapview(complete_map, zcol = "cycling")
+```
+
+If we switch to driving, it seems like the entire SF city is "complete" (Fig \@ref(fig:driving)). Think of the parking problems in SF, it's clear that SF's amenities are not set up in a way for people to enjoy more sustainable ways of traveling such as walking, but since it's a dense urban environment, the ownership of a car can make your life way easier within reasonable times.
+
+```{r driving, fig.cap="The completeness score map for drivihg in San Francisco"}
+mapview(complete_map, zcol = "driving")
+```
+
+# Schools - amenity check
+
+```{r acs5-data}
+# acs_vars_2019_5yr <- readRDS("acs_vars_2019_5yr.rds")
+# covid_testing <-
+#   st_read("https://opendata.arcgis.com/datasets/d7d10caf1cec43e0985cc90fbbcf91cb_0.geojson")
+```
+
+Now, we want to look closely into the distribution of educational systems in SF. As a globally famous city, SF is attracting more and more young talents into the city where they may have the need to raise a family. Is the school distribution in SF set up in a way where kids can easily walk to school by themselves instead of relying on their parents to drive on this already jammed city? The locations of schools in SF are shown in Fig \@ref(fig:sf-school-district).
+
+```{r sf-school-district, fig.cap="The map of San Francisco schools"}
+# sf_school <- sf_pois %>%
+#   filter(amenity %in% c("school"))
+# saveRDS(sf_school, "sf_school_pois.rds")
+
+sf_school <- readRDS("sf_school_pois.rds")
+mapview(sf_school)
+```
+
+```{r}
+# school_walk_10min <- mb_isochrone(
+#   sf_school,
+#   profile = "walking",
+#   time = 10
+# )
+# 
+# sf_school_walk_10min <-
+#   sf_school %>% 
+#   st_drop_geometry() %>% 
+#   cbind(school_walk_10min$geometry) %>% 
+#   st_as_sf()
+# 
+# saveRDS(sf_school_walk_10min, "sf_school_walk_10min.rds")
+```
+
+```{r school-10min-covering-area, fig.cap="The isochrones of 10min-walking from schools in SF"}
+# The isochrones for the distance of 10min walking from the center of each school are shown in Fig \@ref(fig:school-10min-covering-area). We are happy to see it covers most of the residential areas in SF.
+
+sf_school_walk_10min <- readRDS("sf_school_walk_10min.rds")
+
+# leaflet() %>% 
+#   addMapboxTiles(
+#     style_id = "streets-v11",
+#     username = "mapbox"
+#   ) %>%
+#   addPolygons(
+#     data = sf_school_walk_10min,
+#     label = ~name
+#   )
+```    
+
+```{r}
+# sf_block_area <- sf_cbs %>%
+#   st_transform(26910) %>%
+#   mutate(original_area = st_area(.))
+```
+
+The percentage of area covered by the 10min-walking isochrones from schools are shown in Fig \@ref(fig:school-scoring-1). Most of the residential areas in SF are covered to a great percentage. The uncovered areas are mostly mountains and trails inside the city. The number of population outside of school covering areas are computed in Fig \@ref(fig:school-scoring).
+
+```{r school-scoring-1, fig.cap="The percentage of school-walking-distance covered areas for each block in SF"}
+# sf_bs_isochrone_intersect <-
+#   sf_block_area %>%
+#   st_intersection(
+#     sf_school_walk_10min %>%
+#       st_union() %>%
+#       st_transform(26910)
+#   ) %>%
+#   mutate(
+#     leftover = st_area(.),
+#     perc_area = leftover/original_area
+#   )
+# saveRDS(sf_bs_isochrone_intersect, "sf_bs_isochrone_intersect.RDS")
+sf_bs_isochrone_intersect <- readRDS("sf_bs_isochrone_intersect.RDS")
+mapview(sf_bs_isochrone_intersect, zcol = "perc_area")
+#mapview(sf_cbs)
+```
+
+```{r school-scoring, fig.cap="The population outside of school-walking-distance covered areas for each block in SF"}
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+# sf_block_dec <-
+#   getCensus(
+#     name = "dec/pl",
+#     vintage = 2020,
+#     region = "block:*", 
+#     regionin = "state:06+county:075",
+#     vars = "P1_001N"
+#   ) %>%
+#   mutate(
+#     GEOID10 = paste0(state, county, tract, block)
+#   ) %>%
+#   rename(population = P1_001N)
+# 
+# saveRDS(sf_block_dec, "sf_block_population_dec2020.rds")
+
+# sf_block_dec <- readRDS("sf_block_population_dec2020.rds")
+# 
+# t = sf_cbs %>%
+#   left_join(
+#     sf_bs_isochrone_intersect %>% select(GEOID10,original_area, leftover, perc_area) %>% st_drop_geometry()
+#   ) %>%
+#   left_join(sf_block_dec %>% select(GEOID10, population)) %>%
+#   select(GEOID10,original_area, leftover, perc_area, population) %>%
+#   mutate_if(is.numeric, replace_na, replace = 0) %>%
+#   mutate(
+#     perc_area = as.numeric(perc_area),
+#     uncovered_pop = population*(1-perc_area)
+#   )
+# saveRDS(t, "t.rds")
+t <- readRDS("t.rds")
+mapview(t, zcol = "uncovered_pop")
+
+# leaflet() %>% 
+#   addMapboxTiles(
+#     style_id = "streets-v11",
+#     username = "mapbox"
+#   ) %>%
+#   addPolygons(
+#     data = t,
+#     label = ~perc_area
+#   )
+```
+
+```{r sf-park-pois, eval = F}
+# unfinished, exercise facility analysis
+
+# sf_park <- sf_pois %>%
+#   filter(amenity %in% c("park"))
+# saveRDS(sf_park, "sf_park_pois.rds")
+
+sf_park <- readRDS("sf_park_pois.rds")
+mapview(sf_park)
+```
+
+```{r eval = F}
+# park_walk_10min <- mb_isochrone(
+#   sf_park,
+#   profile = "walking",
+#   time = 10
+# )
+# 
+# sf_park_walk_10min <-
+#   sf_park %>%
+#   st_drop_geometry() %>%
+#   cbind(park_walk_10min$geometry) %>%
+#   st_as_sf()
+# 
+# saveRDS(sf_park_walk_10min, "sf_isochrone_park_walk_10min.rds")
+
+sf_park_walk_10min <- readRDS("sf_isochrone_park_walk_10min.rds")
+```
+
+```{r parks-10min-covering-area, eval = F}
+leaflet() %>% 
+  addMapboxTiles(
+    style_id = "streets-v11",
+    username = "mapbox"
+  ) %>%
+  addPolygons(
+    data = sf_park_walk_10min,
+    label = ~name
+  )
+```
+
+```{r eval = F}
+# sf_bs <- 
+#   blocks("CA","San Francisco", progress_bar = F) %>%
+#   st_transform(26910) %>% 
+#   mutate(original_area = st_area(.))
+# 
+# sf_bg_isochrone_intersect <-
+#   sf_bs %>% 
+#   st_intersection(
+#     sf_exercise_walk_10min %>% 
+#       st_union() %>% 
+#       st_transform(26910)
+#   ) %>% 
+#   mutate(
+#     leftover_area = st_area(.),
+#     perc_area = leftover_area / original_area
+#   )
+# 
+# Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+# sf_bs_income <-
+#   getCensus(
+#     name = "acs/acs5",
+#     vintage = 2019,
+#     region = "block group:*", 
+#     regionin = "state:06+county:075",
+#     vars = "group(B19001)"
+#   ) %>% 
+#   mutate(cbg = paste0(state,county,tract,block_group)) %>% 
+#   select(!c(GEO_ID,state,county,tract,block_group,NAME) & !ends_with(c("EA","MA","M"))) %>%
+#   pivot_longer(
+#     ends_with("E"),
+#     names_to = "variable",
+#     values_to = "estimate"
+#   ) %>%
+#   left_join(
+#     acs_vars_2019_5yr %>% 
+#       select(name, label), 
+#     by = c("variable" = "name")
+#   ) %>% 
+#   select(-variable) %>% 
+#   separate(
+#     label,
+#     into = c(NA,NA,"income"),
+#     sep = "!!"
+#   ) %>% 
+#   filter(!is.na(income)) %>% 
+#   mutate(
+#     income = case_when(
+#       income %in% c("Less than $10,000","$10,000 to $14,999","$15,000 to $19,999","$20,000 to $24,999") ~ "Less than $25,000",
+#       income %in% c("$25,000 to $29,999","$30,000 to $34,999","$35,000 to $39,999","$40,000 to $44,999","$45,000 to $49,999") ~ "$25,000 to $49,999",
+#       income %in% c("$50,000 to $59,999","$60,000 to $74,999") ~ "$50,000 to $74,999",
+#       TRUE ~ income
+#     )
+#   )
+# 
+# sf_income <-
+#   sf_bs_income %>% 
+#   mutate(income = factor(income, levels = unique(sf_bs_income$income))) %>% 
+#   group_by(income) %>% 
+#   summarize(estimate = sum(estimate)) %>% 
+#   mutate(
+#     perc = estimate/sum(estimate),
+#     group = "Full Population"
+#   )
+#   
+# sf_exercise_income <-
+#   sf_bs_income %>% 
+#   mutate(income = factor(income, levels = unique(sf_bs_income$income))) %>% 
+#   left_join(
+#     sf_bg_isochrone_intersect %>% 
+#       select(cbg = GEOID10, perc_area) %>% 
+#       st_drop_geometry()
+#   ) %>% 
+#   filter(!is.na(perc_area)) %>% 
+#   mutate(
+#     estimate = estimate * perc_area
+#   ) %>% 
+#   group_by(income) %>% 
+#   summarize(estimate = sum(estimate)) %>% 
+#   mutate(
+#     perc = estimate/sum(estimate),
+#     group = "Population within 10 min. walk of an exercise place"
+#   )
+```
+
+```{r}
+# sum(sf_exercise_income$estimate)/
+#   sum(sf_income$estimate)
+```
+
+# Conclusion
+
+In conclusion, San Francisco as a dense urban area, has most of its amenities within reasonable reach if we assume all residents have access to a car. The walkability of the city still has space for improvement. Given the hill terrain of the city, biking may not be a feasible way of transportation for certain groups of population. Given the number of amenities within the SF area compared to other areas of the Bay in Fig \@ref(fig:map-of-chosen-pois), we can anticipate the results would be vastly different in other areas in the Bay.
