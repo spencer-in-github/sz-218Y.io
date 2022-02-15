@@ -1,0 +1,262 @@
+---
+title: "Sustainability: GHG Emission Analysis in SF 94108"
+author: "Spencer Zhang"
+date: "2/12/2022"
+output: bookdown::html_document2
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+options(tigris_use_cache = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(censusapi)
+library(mapview)
+library(leaflet)
+library(mapboxapi)
+library(readr)
+library(jsonlite)
+```
+
+```{r prep-data}
+zip <- read_rds("zip_info_94108.rds")
+zip_blocks <- read_rds("zip_block_info_94108.rds")
+zip_cbgs <- 
+  block_groups(state = "CA", county = "San Francisco") %>% 
+  st_centroid() %>%
+  .[zip,] %>% 
+  st_drop_geometry() %>% 
+  left_join(block_groups(state = "CA", county = "San Francisco") %>% select(GEOID)) %>% 
+  st_as_sf()
+
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+acs_vars_2019_5yr <- read_rds("acs_vars_2019_5yr.rds")
+
+ca_cbgs_pop <- readRDS("ca_pop_2013_2019.rds")
+origin_cbgs_pop <- read_rds("origin_cbgs_pop_94108.rds")
+
+travel_time_mode <- read_rds("94108_travel_time_mode.rds")
+
+ct_trips <- read_rds("94108_trips.rds")
+ct_visits <- read_rds("94108_trips_vmt_by_year_tract.rds")
+
+ct_trips_ghg_annual <- read_rds("94108_vmt_ghg_total.rds")
+
+bldg_pge_by_year <- read_rds("94108_bldg_pge_2013_2019.rds")
+bldg_energy_normalized <-
+  read_rds("94108_bldg_energy_normalized.rds")
+```
+
+Greenhouse gas (GHG) emission has been the heart of sustainability analysis for long. It's the most direct global warming effect indicator and driving contributor. Common GHGs are CO~2~, methane, N~x~O~y~, and etc. Allocating the GHG emission responsibility by sectors can help us pinpoint the most emission-dense players on the market and devise a faster strategy accordingly, for reducing GHG emission overall. In 2019 in the United States, 29% of the total GHG emission goes into transportation and 13% goes into residential and commericial buildings ([U.S. EPA](https://www.epa.gov/sites/default/files/styles/large/public/2021-04/sources-of-greenhouse-gas-emissions-2021.png?VersionId=yTDAn3P6ckJUNu4vONqNRt4hzTZgdxr7&itok=USpfxh5o)). in the following study, on the outlook for the future of the Bay Area, we would like to look deeply into the GHG emission associated with commute transportation and building sector in the San Francisco 94108 ZIPCode region. The time period we would focus on is 2013 to 2019, pre-COVID era. What does the emission structure look like in the dense urban region? What percentage of GHG emission does commute transportation and building usage hold? Over the course of 7 years, how has the GHG emission trend evolve, and what are the potential driving factors? This study serves as a preliminary exploration into the GHG emission behaviors of the SF 94108 area, and may provide potential insights on strategies for GHG emission reduction on a policy level.
+
+# ZIPCode Region Overview
+
+The location of this study (Fig \@ref(fig:map-of-94108)) is 94108, the intersection of Lower Nob Hill, Chinatown, and SF downtown, in the heart of San Francisco City. This area is dense with commercial occupations as well as residential dwellings, serving as a base analysis model for combining commute transportation emissions with building emissions.
+
+```{r map-of-94108, fig.align='center', fig.cap= "Mapview of the chosen sutdy area 94108, blue circle in census block group level."}
+leaflet() %>% 
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    data = zip_cbgs %>% st_transform(4326),
+    fill = F
+  )
+```
+
+# Total GHG emission from commute transportation and building operation
+
+The total GHG emission from both commute sector and building sector in 94108 over 2013 to 2019 can be found in Fig \@ref(fig:ghg-vehicle-bldg). Note the building operation emission here consists of only commericial buildings and residential buildings (C&R), not including industrial buildings and not including building construction emissions.
+
+The vehicle emission is estimated from vehicle miles traveled (VMTs) and vehicle fuel emission factors, with supporting base data from [LODES Job-to-Job Origin-Destination data](https://lehd.ces.census.gov/data/lodes/LODES7/ca/od/), [Census ACS5 data](https://api.census.gov/data/2019/acs/acs5/variables.html), and etc. The building emission is estimated from building electricity and gas usage, and emission factors, with supporting data from [PG&E Energy Data Quest](https://pge-energydatarequest.com/public_datasets). Detailed methods and data sources can be found in \@ref(methodology-and-data).
+
+From Fig \@ref(fig:ghg-vehicle-bldg), we can see the total GHG emission associated with the two sectors presents a slight decreasing trend in 94108 from 2013 to 2019, with a peak value in 2014. Moreover, the building emission is a surprisingly small portion compared to the commute vehicle emission. This is especially counter-intuitive for non-energy people, given the assumably much shorter amount of time people spent in cars as compared to in buildings.
+
+```{r ghg-vehicle-bldg, fig.align='center', fig.cap= "The total GHG emissions associated with commute transportation and building operation in 94108, from 2013 to 2019"}
+stack1 <- ct_trips_ghg_annual %>%
+  mutate(
+    source = "Commute Vehicle"
+  ) %>%
+  select(year, ghg, source)
+
+bldg_energy_normalized %>%
+  group_by(year = YEAR) %>%
+  summarize(ghg = sum(as.numeric(TOTALTCO2E))) %>%
+  mutate(source = "C&R Building") %>%
+  rbind(stack1) %>%
+  ggplot() +
+    geom_bar(
+      aes(x = year, y = ghg, fill = source),
+      stat = "identity",
+      position = "stack"
+    ) + labs(
+      x = "Year",
+      y = "GHG emission (metric Tonnes)",
+      title = "Total Annual GHG Emissions in 94108\n by emission source, 2013-2019",
+      fill = "Emission Source"
+    )
+```
+
+# Building emission
+
+Look closely at the building emission sector, the commercial and residential building present different emission patterns as well (Fig \@ref(fig:total-bldg-ghg-plot)). Overall, the building GHG emission is decreasing in 2013-2019 period. The commercial buildings emit a lot more GHG in its electricity usage than residential buildings ------ Think about the lighting and heavy HVAC in your big whole-floor offices! The GHG emission from gas comsumption is relatively same in both commercial and residential, which typically is associated with heating and cooking. The gas GHG emission remains relative unchanged over the course of 7 years, while the electricity GHG emission is decreasing in both buildings. This decreasing trend may come from changes in the energy structure of electricity generation, or the number of occupants in the building.
+
+```{r total-bldg-ghg-plot, fig.align='center', fig.cap= "The building GHG emission in 94108, by Building (c/r) and Energy (elec/gas) type"}
+# New facet label names for building type variable
+customer.labs <- c("Commercial", "Residential")
+names(customer.labs) <- c("C", "R")
+
+bldg_energy_normalized %>%
+  ggplot() +
+    geom_bar(
+      aes(x = YEAR, y = TOTALTCO2E, fill = ENERGYTYPE),
+      stat = "identity",
+      position = "stack"
+    ) + labs(
+      x = "Year",
+      y = "GHG emission (metric Tonnes)",
+      title = "Total Annual Buidling GHG Emissions\nin 94108, by Building usage category, 2013-2019",
+      fill = "Emission Source"
+    ) + facet_grid(cols = vars(`BUILDINGTYPE`),
+                   labeller = labeller(BUILDINGTYPE = customer.labs)) + scale_fill_discrete(
+                     labels = c("Electricity", "Gas")
+                   )
+```
+
+While we look high level at the total GHG emission per economic sector, the real changes should happen at individual level as well. If every resident or building occupant starts to make smarter energy choices and modify their energy usage behavior, the combined upstream energy savings and related GHG reduction are revolutionary. Here we inspect further on the energy consumption behavior per resident or building occupant level in 94108, to see if there are positive or negative changes during 2013 to 2019.
+
+Energy intensity (kBTU/occupant) is used to evaluate energy consumption behavior. Only electricity and gas are included in this study. The driving factors for electricity and gas are cooling and heating facilities in buildings, which can be represented through Cooling Degree Days and Heating Degree Days as defined by [Cal-Adapt Degree Day tool](https://cal-adapt.org/tools/degree-days/). We thus used CDDs and HDDs to generated normalized energy intensity. Further methodology details can be found in \@ref(methodology-and-data).
+
+Even in terms of energy intensity, commercial buildings use way more electricity than residential, however residents consume more gas per person than commercial occupants (may coming from cooking facilities and shower-water heating). The energy intensity remains relatively steady over the course of 7 years, however if we normalize the intensity by CDD/HDD as shown in the second row in Fig \@ref(fig:bldg-energy-intensity-plot), the energy intensity increases to a peak value in 2019 for both commercial and residential building occupants.
+
+As indicated by the black line in Fig \@ref(fig:bldg-energy-intensity-plot), the number of commercial building occupants decreased from 2018 to 2019, which may contributes to the peak of energy intensity. The number of jobs provided by each building in 94108 decreased, but the building is burning the same amount of energy either way. In residential buildings, the intensity increased very slightly towards 2019 and the number of residents decreased slightly accordingly. Note the occupant number is scaled for plotting, the y-axis only reflects intensity values.
+
+```{r bldg-energy-intensity-plot, fig.align='center', fig.cap= "The building energy usage intensity in 94108, by Building (c/r)"}
+# New facet label names for intensity_type
+intensity.labs <- c("Actual", "Normalized")
+names(intensity.labs) <- c("intensity", "intensity_normalized")
+
+# New facet label names for building type variable
+customer.labs <- c("Commerical", "Residential")
+names(customer.labs) <- c("C", "R")
+
+bldg_energy_normalized %>% 
+  mutate(
+    pop = case_when(
+      BUILDINGTYPE == "C" ~ job_cnts,
+      BUILDINGTYPE == "R" ~resident_pop
+    )
+  ) %>%
+  pivot_longer(
+    cols = c("intensity", "intensity_normalized"),
+    names_to = "intensity_type",
+    values_to = "estimate"
+  ) %>%
+    select(YEAR, ENERGYTYPE, BUILDINGTYPE, intensity_type, estimate, pop) %>%
+  ggplot() +
+  geom_bar(
+    aes(x = YEAR, y = estimate, fill = ENERGYTYPE),
+    stat = "identity"
+  ) + facet_grid(
+    rows = vars(intensity_type), 
+    cols = vars(BUILDINGTYPE), 
+    scales = "free",
+    labeller = labeller(intensity_type = intensity.labs,
+                        BUILDINGTYPE = customer.labs)) +
+  labs(
+    x = "Year",
+    y = "Energy Usage Intensity, kBTU/user(/HDD or CDD)",
+    title = "Annual Building Energy Usage Intensity in 94108, 2013-2019", fill = "Energy Type"
+  ) +
+  scale_fill_discrete(
+    labels = c("Electricity", "Gas")
+  ) + geom_line(aes(x = YEAR, y = pop/3)) + 
+  labs(subtitle = "Line indicates the number of building occupants (job counts or residents per year)")
+```
+
+# Commute emission
+
+Commute-associated GHG emission contributes majorly to the total GHG emission in an urban region. Commute transportation emission is strongly associated with individuals. How many people work in the given region? How many people commute to this region using what means and by what duration? Public transit, carpooling, or driving alone? Gas-fueled or electrified? Every single decision we as city occupants make, contributes to the final emission that, we as a whole, endure.
+
+The commute-associated GHG emission in 94108 from 2013 to 2019 is shown in Fig \@ref(fig:commute-emission-pop), with the black line indicating the relevant population growth (the number of job offered in the area and the number of residents). Intuitively speaking, the trend between commute emission and population growth is not corresponding in the period of 2013 to 2015. The commute emission had a particular peak value in 2014, then started to decrease significantly till the year 2016, afterwards it climbed back corresponding to relevant population change. The major emission shift from (2013,2015) period to (2016,2019) period may come from the change of commuter behavior.
+
+```{r commute-emission-pop, fig.align='center', fig.cap= "The annual GHG emission associated with commute transportation in 94108 from 2013 to 2019"}
+total <- bldg_energy_normalized %>%
+  left_join(ct_trips_ghg_annual, by = c("YEAR" = "year")) %>%
+  select(
+    YEAR, building = TOTALTCO2E, job_pop = job_cnts, res_pop = resident_pop, trips, vmt, commute = ghg
+  )
+
+total %>%
+  ggplot() +
+  geom_bar(
+    aes(x = YEAR, y = commute),
+    stat = "identity"
+  ) +
+  geom_line(aes(x = YEAR, y = (res_pop+job_pop)*20)) + 
+  labs(
+    x = "Year",
+    y = "GHG emission (metric Tonnes)",
+    title = "The annual GHG emission from commute transportation in 94108, 2013-2019",
+    subtitle = "Line indicates the number of total relevant population"
+  )
+```
+
+Shown in Fig \@ref(fig:commute-ghg-by-job-or-res), we aligned the job growth data and residential population data (shown in line) with the commute GHG emission (shown in bar). The number of jobs offered in the 94108 area is larger than its residing population, but they both show similar growth trends in 2013 to 2019, increasing from 2013 to 2018 and decreasing in 2019. Intuitively, job count growth presents a more corresponding pattern with the commute emission.
+
+```{r commute-ghg-by-job-or-res, fig.align='center', fig.cap= "The commute GHG changes with respect to relevant population change in 94108"}
+total <- bldg_energy_normalized %>%
+  left_join(ct_trips_ghg_annual, by = c("YEAR" = "year")) %>%
+  select(
+    YEAR, building = TOTALTCO2E, `Job Counts in line` = job_cnts,`Residential Population in line` = resident_pop, trips, vmt, commute = ghg
+  ) %>%
+  pivot_longer(
+    cols = c(`Job Counts in line`,`Residential Population in line`),
+    names_to = "Population Type",
+    values_to = "Estimate"
+  )
+
+total %>%
+  ggplot() +
+  geom_bar(
+    aes(x = YEAR, y = commute),
+    stat = "identity"
+  ) +
+  geom_line(aes(x = YEAR, y = Estimate*40)) + 
+  facet_grid(cols = vars(`Population Type`)) +
+  labs(
+    x = "Year",
+    y = "GHG emission (metric Tonnes)",
+    title = "The annual GHG emission from commute transportation in 94108, 2013-2019",
+    subtitle = "Line indicates the number of relevant population"
+  )
+```
+
+# Reflection on GHG emission responsibility allocation
+
+Looking at [USEPA's GHG overview](<https://www.epa.gov/ghgemissions/inventory-us-greenhouse-gas-emissions-and-sinks>), I support the Scope 2 allocation methodology, where the GHG emission happens within your system boundary (whether it's per household or factory) is 100% allocation, plus the upstream emission associated with grid-supplied power etc. While Scope 3 is more end-use oriented, allocating the emissions associated with product manufacturer to users instead of direct profit holders (companies) seems less intuitive to me, and hard to incentivize.
+
+# Methodology and Data Sources
+
+## Commute transportation emission
+
+LODES Job-to-Job Origin-Destination data is utilized in this study to get the number of commuters (job counts) travelling in and out the region of 94108 for work purposes. The job counts are aggregated to a tract to ZIP code level granularity. The distance and duration for each commute trip is estimated by the routing between each tract centroid and the ZIPcode 94108 centroid, supported by Mapbox routing function. We estimated each commuter travels 261 days to work per year, and the travel mode (vehicle occupancy) is interpreted by census acs5 "MEANS OF TRANSPORTATION BY TRAVEL TIME TO WORK." The total VMTs are therefore estimated by aggregating commuter trips, distances, and travel modes. The total GHG emission is estimated by combing VMTs and vehicle type, emission factors from EMFAC.
+
+## Building emission
+
+Building emission in 94108 is estimated from building operational energy usage and energy emission factors, both data from PG&E.
+
+## Demographic data
+
+Residential population data is from acs5. Job count data is from LODES WAC data.
+
+## Code availability
+
+Full code can be found in [the supporter file](\#todo).

@@ -1,0 +1,785 @@
+---
+title: "Sustainability Analysis: GHG Emission"
+author: "Spencer Zhang"
+date: "2/7/2022"
+output: bookdown::html_document2
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=T}
+knitr::opts_chunk$set(echo = T, warning = F, message = F, eval = F)
+options(tigris_use_cache = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(censusapi)
+library(mapview)
+library(leaflet)
+library(mapboxapi)
+library(readr)
+library(jsonlite)
+```
+
+# Vehicle Emission
+## Commute data from LODES in 94108
+```{r zip-94108, eval = F}
+# zctas <- zctas() #Download a Zip Code Tabulation Area (ZCTA) shapefile into R
+# 
+# downtown Palo Alto residential area
+# zip <- zctas %>% 
+#   filter(GEOID10 == "94108") #single line information of 94108
+# 
+# blocks <- blocks("CA") #all block information in CA
+# 
+# zip_blocks <- blocks %>% 
+#   st_centroid() %>% 
+#   .[zip, ] #all blocks in zip=94108
+# saveRDS(zip, "zip_info_94108.rds")
+# saveRDS(zip_blocks, "zip_block_info_94108.rds")
+```
+
+```{r read-zip}
+zip <- read_rds("zip_info_94108.rds")
+zip_blocks <- read_rds("zip_block_info_94108.rds")
+zip_cbgs <- 
+  block_groups(state = "CA", county = "San Francisco") %>% 
+  st_centroid() %>%
+  .[zip,] %>% 
+  st_drop_geometry() %>% 
+  left_join(block_groups(state = "CA", county = "San Francisco") %>% select(GEOID)) %>% 
+  st_as_sf()
+```
+
+```{r LODES-commute-od-data, eval = F}
+# full_ct_od <- 2013:2019 %>% 
+#   map_dfr(function(year){
+#     
+#     print(year)
+#     
+#     temp <- read_csv(paste0("/Volumes/GoogleDrive/Shared drives/SFBI/Data Library/LODES/ca_od_main_JT01_", year, ".csv.gz")) %>% 
+#       filter(
+#         h_geocode %in% zip_blocks$GEOID10 |
+#           w_geocode %in% zip_blocks$GEOID10
+#       ) %>% 
+#       mutate(year = year)
+#     
+#     saveRDS(temp, paste0("94108_od_", year, ".rds"))
+#     
+#     return(temp)
+#     
+#   }) #5 years data
+# 
+# saveRDS(full_ct_od, "94108_od_full.rds")
+```
+
+```{r read-commute-od-data, eval = F}
+full_ct_od <- readRDS("94108_od_full.rds")
+```
+
+```{r add-inbound/outbound-to-LODES, eval = F}
+# full_ct_od_cross <- full_ct_od %>% 
+#   select(-createdate) %>% 
+#   filter(!(
+#     h_geocode %in% zip_blocks$GEOID10 &
+#       w_geocode %in% zip_blocks$GEOID10
+#   )) %>% #not include people who travel within their zip code
+#   mutate(
+#     direction = ifelse(
+#       h_geocode %in% zip_blocks$GEOID10,
+#       "outbound",
+#       "inbound"
+#     )
+#   ) #commute data where people travel out or into 94108
+```
+## routing 
+```{r filter-out-routing-directions, eval = F}
+# full_ct_od_routing <- full_ct_od_cross %>% 
+#   mutate(
+#     origin = ifelse(
+#       direction == "inbound",
+#       h_geocode,
+#       w_geocode
+#     ),
+#     cbg = origin %>% substr(1,12),
+#     tract = origin %>% substr(1,11)
+#   ) %>% 
+#   filter(!duplicated(tract))
+#Question: why are we filtering out the duplicated??
+#Answer: to do routing only once for the same origin
+```
+
+```{r routing-mapbox, eval = F}
+# ca_tracts <- tracts("CA") #census acs5/1 only to tract levels
+#only decennial data offers blockgroup levels
+# 
+# #routing origins (all inbound/outbound locations)
+od_origin <-
+  full_ct_od_routing %>%
+  select(tract) %>%
+  left_join(ca_tracts %>% select(tract = GEOID)) %>%
+  st_as_sf() %>%
+  st_centroid() %>%
+  st_coordinates() #add geometry information into the od_origins for later routing
+
+view(head(full_ct_od_routing)) #contains destination(outside of 94108) tract ids
+view(head(od_origin)) #centroid coordinate(X,Y) for  
+
+# 
+# # nrow(od_origin) #7044
+# 
+# #routing destination (94108 only)
+# od_destination <-
+#   zip %>% 
+#   st_centroid() %>% 
+#   st_coordinates()
+
+#routing using mapbox
+# od_route <- 
+#   1:ceiling(nrow(od_origin)/1000) %>% 
+#   map_dfr(function(y){
+#     
+#     print(y)
+#     
+#     temp <- 
+#       (y * 1000 - 999) : pmin(y * 1000, nrow(od_origin)) %>% 
+#       map_dfr(function(x){
+#         tryCatch(
+#           mb_directions(
+#             origin = od_origin[x, ],
+#             destination = od_destination,
+#             profile = "driving-traffic"
+#           ) %>% 
+#             mutate(id = x),
+#           error = function(e){
+#             data.frame(id = x)
+#           }
+#         )
+#       }) %>% 
+#       st_as_sf()
+#       
+#       saveRDS(temp, paste0("94108_od_routing_",y,".rds"))
+#       
+#       return(temp)
+#   })
+# saveRDS(od_route, "94108_od_routing_full.rds")
+
+view(head(od_route))
+```
+
+```{r read-commute-od-routed-duration-time, eval = F}
+# od_route <-readRDS("94108_od_routing_full.rds")
+nrow(full_ct_od_routing)
+
+od_route %>%
+  filter(is.na(duration)) #2 rows
+```
+
+```{r combine-routed-results-with-jobs, eval = F}
+full_od_routed <- full_ct_od_routing %>%
+  cbind(od_route)
+
+view(head(full_od_routed))
+view(head(full_ct_od_cross))
+full_od_routed %>%
+  filter(is.na(duration)) #2 rows
+names(full_od_routed)
+
+sum(is.na(full_od_final$duration))
+
+view(head(full_od_final))
+
+full_od_final <- full_ct_od_cross %>%
+  mutate(
+    origin = ifelse(
+      direction == "inbound",
+      h_geocode,
+      w_geocode
+    ),
+    tract = substr(origin, 1, 11)
+  ) %>%
+  left_join(
+    full_od_routed %>%
+      select(tract, duration, distance)
+  ) %>%
+  mutate(
+    visits = S000 * 261 #TODO: the number of visits per year for commute patterns
+  )
+saveRDS(full_od_final,"94108_commute_od_routed_2013_2019.rds")
+```
+
+```{r read-commute-routed-2013-2019, eval = F}
+full_od_final <- read_rds("94108_commute_od_routed_2013_2019.rds")
+```
+
+## combine population data from acs5
+```{r pop-data}
+#convert distance and visits in full_od_final into VMT
+#visits are "per job" so combine with census data to calculate "per vehicle"
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+# ca_cbgs_pop <-
+#   counties("CA", cb = T, progress_bar = F) %>%
+#   pull(COUNTYFP) %>% 
+#   map_dfr(function(x){
+#     getCensus(
+#       name = "acs/acs5",
+#       vintage = 2019,
+#       region = "block group:*",
+#       regionin = paste0("state:06+county:", x),
+#       vars = "B01001_001E"
+#     )
+#   }) %>% 
+#   transmute(
+#     census_block_group =
+#       paste0(state,county,tract,block_group),
+#     pop = B01001_001E
+#   )
+# #names(ca_cbgs_pop) #"census_block_group" "pop" 
+# 
+# test <-
+#   2013:2019 %>%
+#   map_dfr(function(year){
+#     counties("CA", cb = T, progress_bar = F) %>%
+#     pull(COUNTYFP) %>% 
+#     map_dfr(function(x){
+#       getCensus(
+#         name = "acs/acs5",
+#         vintage = year,
+#         region = "block group:*",
+#         regionin = paste0("state:06+county:", x),
+#         vars = "B01001_001E"
+#       )
+#     }) %>% 
+#     transmute(
+#       census_block_group =
+#         paste0(state,county,tract,block_group),
+#       pop = B01001_001E,
+#       year = year
+#     )
+#   })
+# view(head(ca_cbgs_pop))
+#   
+# saveRDS(test, "ca_pop_2013_2019.rds")
+ca_cbgs_pop <- readRDS("ca_pop_2013_2019.rds")
+
+# origin_cbgs_pop <-
+#   full_od_final %>%
+#   select(-starts_with("S")) %>%
+#   mutate(
+#     h_cbgs = substr(h_geocode, 1, 12)
+#   ) %>%
+#   left_join(
+#     ca_cbgs_pop,
+#     by = c("h_cbgs" = "census_block_group", "year" = "year")
+#   )
+# 
+# saveRDS(origin_cbgs_pop, "origin_cbgs_pop_94108.rds")
+
+origin_cbgs_pop <- read_rds("origin_cbgs_pop_94108.rds")
+```
+
+There are three census block groups that have no population documented, excluded from this analysis. They are 060379304011, 060378002043, 060378002043.
+##TODO: find out where are these places and why they have no routing as well
+```{r eval = F}
+sum(is.na(origin_cbgs_pop$pop)) #3
+sum(is.na(origin_cbgs_pop$duration)) #4
+
+origin_cbgs_pop %>% filter(is.na(pop))
+#060379304011
+#060378002043
+#060378002043
+```
+
+## travel mode
+```{r travel-mode-by-time}
+acs_vars_2019_5yr <- read_rds("acs_vars_2019_5yr.rds")
+
+# travel_time_mode <-
+#   counties("CA", cb = T, progress_bar = F) %>%
+#   pull(COUNTYFP) %>% 
+#   map_dfr(function(x){
+#     getCensus(
+#       name = "acs/acs5",
+#       vintage = 2019,
+#       region = "block group:*",
+#       regionin = paste0("state:06+county:", x),
+#       vars = "group(B08134)" #Mode to work by travel time to work
+#     )
+#   }) %>% 
+#   mutate(
+#     cbg =
+#       paste0(state,county,tract,block_group)
+#   ) %>%
+#   filter(cbg %in% origin_cbgs_pop$h_cbgs) %>% 
+#   select(!c(GEO_ID,state,county,tract,block_group,NAME) & !ends_with(c("EA","MA","M"))) %>%
+#   pivot_longer(
+#     ends_with("E"),
+#     names_to = "variable",
+#     values_to = "estimate"
+#   ) %>%
+#   left_join(
+#     acs_vars_2019_5yr %>% 
+#       select(name, label), 
+#     by = c("variable" = "name")
+#   ) %>% 
+#   select(-variable) %>% 
+#   separate(
+#     label,
+#     into = c(NA, NA, "total", "mode", "carpool", "time"),
+#     sep = "!!"
+#   ) %>% 
+#   mutate(
+#     mode = case_when(
+#       total %in% c(
+#         "Less than 10 minutes",
+#         "10 to 14 minutes",
+#         "15 to 19 minutes",
+#         "20 to 24 minutes",
+#         "25 to 29 minutes",
+#         "30 to 34 minutes",
+#         "35 to 44 minutes",
+#         "45 to 59 minutes",
+#         "60 or more minutes"
+#       ) ~ "Total",
+#       mode == "Drove alone:" ~ mode,
+#       carpool %in% c(
+#         "In 2-person carpool:",
+#         "In 3-or-more-person carpool:"
+#       ) ~ carpool
+#     ),
+#     time = case_when(
+#       mode == "Total" ~ total,
+#       mode == "Drove alone:" ~ carpool,
+#       mode == carpool ~ time
+#     )
+#   ) %>% 
+#   filter(!is.na(time)) %>% 
+#   select(-total, -carpool) %>% 
+#   pivot_wider(
+#     names_from = mode,
+#     values_from = estimate
+#   ) %>% 
+#   mutate(
+#     perc_veh1 = `Drove alone:`/Total,
+#     perc_veh2 = `In 2-person carpool:`/Total,
+#     perc_veh3 = `In 3-or-more-person carpool:`/Total
+#   )
+# 
+# saveRDS(travel_time_mode, "94108_travel_time_mode.rds")
+
+travel_time_mode <- read_rds("94108_travel_time_mode.rds")
+```
+
+```{r ct-trips-construct, eval = F}
+ct_trips <-
+  origin_cbgs_pop %>% 
+  mutate(
+    time = case_when(
+      duration < 10 ~ "Less than 10 minutes",
+      duration < 15 ~ "10 to 14 minutes",
+      duration < 20 ~ "15 to 19 minutes",
+      duration < 25 ~ "20 to 24 minutes",
+      duration < 30 ~ "25 to 29 minutes",
+      duration < 35 ~ "30 to 34 minutes",
+      duration < 45 ~ "35 to 44 minutes",
+      duration < 60 ~ "45 to 59 minutes",
+      TRUE ~ "60 or more minutes"
+    )
+  ) %>% 
+  left_join(
+    travel_time_mode %>% 
+      select(
+        cbg,
+        time,
+        perc_veh1,
+        perc_veh2,
+        perc_veh3
+      ),
+    by = c("h_cbgs" = "cbg", "time")
+  ) %>% 
+  mutate(
+    vehicles = 
+      visits * perc_veh1 + 
+      visits * perc_veh2 / 2 +
+      visits * perc_veh3 / 3,
+    vmt = vehicles * distance * 2
+  )
+saveRDS(ct_trips, "94108_trips.rds")
+```
+
+```{r visits-totalVMT-by-year-origin-geocode15, eval = F}
+ct_trips <- read_rds("94108_trips.rds")
+
+ct_visits <- ct_trips %>%
+  group_by(tract, year) %>%
+  summarize(
+    visits = sum(visits),
+    duration = mean(duration),
+    distance = mean(distance),
+    vmt = sum(vmt)
+  ) %>%
+  st_drop_geometry() %>% 
+  left_join(tracts(state = "CA") %>% select(tract = GEOID)) %>% 
+  st_as_sf()
+
+saveRDS(ct_visits, "94108_trips_vmt_by_year_tract.rds")
+```
+
+```{r load-vmt-data}
+ct_trips <- read_rds("94108_trips.rds")
+ct_visits <- read_rds("94108_trips_vmt_by_year_tract.rds")
+```
+
+```{r vehicle-routing-plot}
+#TODO: fix this chunk
+visits_pal <- colorNumeric(
+  palette = "Reds",
+  domain = ct_visits %>% 
+    filter(year == 2019) %>%
+    arrange(desc(visits)) %>% 
+    pull(visits) 
+    # %>% .[-c(1:6)]
+)
+
+#TODO: this plot is way too slow 
+leaflet() %>% 
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    data = zip_cbgs %>% st_transform(4326),
+    fill = F
+  ) %>% 
+  addPolygons(
+    data = ct_visits %>% st_transform(4326),
+    fillColor = ~visits_pal(visits),
+    color = "red",
+    weight = 1,
+    fillOpacity = 0.75,
+    label = ~visits
+  ) %>% 
+  addLegend(
+    data = ct_visits,
+    pal = visits_pal,
+    values = ct_visits %>% st_transform(4326) %>% 
+      filter(year == 2019) %>%
+      arrange(desc(visits)) %>% 
+      pull(visits), 
+    # %>% .[-c(1:6)],
+    title = "Commute visits to 94108"
+  )
+```
+
+##convert VMTs to GHG emission
+```{r emfac-factors}
+emfac <- 
+  read_csv("EMFAC2021-EI-202xClass-SanFranciscoBayArea-2021-Summer.csv", skip = 8) %>% 
+  transmute(
+    Category = `Vehicle Category`,
+    Fuel_Type = Fuel,
+    Percent_Trips = Trips/sum(Trips),
+    Percent_Miles = `Total VMT`/sum(`Total VMT`),
+    `MTCO2_Running_Exhaust` = CO2_RUNEX/`Total VMT`,
+    `MTCO2_Start_Exhaust` = CO2_STREX/Trips
+  )
+```
+
+```{r GHG-by-year-total,eval = F}
+ct_trips_ghg_by_year <-
+  2013:2019 %>%
+  map_dfr(function(y){
+    emfac %>% 
+  mutate(
+    trips = Percent_Trips * sum(ct_trips %>% filter(year == y) %>% .$visits, na.rm = T),
+    vmt = Percent_Miles * sum(ct_trips %>% filter(year == y) %>% .$vmt, na.rm = T),
+    ghg = vmt*MTCO2_Running_Exhaust + trips*MTCO2_Start_Exhaust*2,
+    year = y
+  )
+  })
+
+ct_trips_ghg_annual <-
+  ct_trips_ghg_by_year %>%
+  group_by(year) %>%
+  summarize(trips = sum(trips),
+            vmt = sum(vmt),
+            ghg = sum(ghg))
+
+saveRDS(ct_trips_ghg_annual, "94108_vmt_ghg_total.rds")
+```
+
+
+# Building Emission
+```{r PGE-elec-emission-factor-by-year}
+#Benchmarking Greenhouse Gas Emissions for Delivered Electricity 
+#UNIT: (Pounds of CO2 per MWh)
+
+pge_elec_emissions_factor <-
+  data.frame(
+    year = c(2013:2019),
+    factor = c(427,435,405,294,210,206,2.68)
+  )
+
+pge_elec_emissions_factor %>% 
+  ggplot() +
+  geom_line(
+    aes(
+      x = year,
+      y = factor
+    )
+  ) +
+  labs(
+    x = "Year",
+    y = "Pounds of CO2 per MHh",
+    title = "PG&E electricity emissions rate"
+  )
+```
+
+```{r PGE-gas-emission-factor}
+#assume it's constant over years
+#UNIT: (pounds of CO2 per million BTU)
+pge_gas_emissions_factor <- 117
+```
+
+```{r pge-by-year-data, eval = F}
+pge_data <- 
+  2013:2019 %>% 
+  map_dfr(function(yr){
+    
+    factor <- 
+      pge_elec_emissions_factor %>% 
+      filter(year == yr) %>% 
+      pull(factor)
+    
+    1:4 %>% 
+      map_dfr(function(quarter){
+        
+        c("Electric","Gas") %>% 
+          map_dfr(function(type){
+            
+            filename <- 
+              paste0(
+                "/Volumes/GoogleDrive/Shared drives/SFBI/Data Library/PG&E/PGE_",
+                yr,
+                "_Q",
+                quarter,
+                "_",
+                type,
+                "UsageByZip.csv"
+              )
+            
+            temp <- read_csv(filename)
+            
+            if(yr == 2017 & quarter == 4) {
+              temp <- 
+                temp %>% 
+                filter(MONTH != 9)
+            }
+            
+            temp <-
+              temp %>% 
+              rename_all(toupper) %>% 
+              mutate(
+                TOTALKBTU = ifelse(
+                  substr(CUSTOMERCLASS,1,1) == "E",
+                  TOTALKWH * 3.412,
+                  TOTALTHM * 99.976
+                ),
+                TOTALTCO2E = ifelse(
+                  substr(CUSTOMERCLASS,1,1) == "E",
+                  TOTALKWH/1000 * factor * 0.000453592,
+                  TOTALTHM * 0.00531
+                )
+              ) %>% 
+              select(
+                ZIPCODE,
+                YEAR,
+                MONTH,
+                CUSTOMERCLASS,
+                TOTALKBTU,
+                TOTALTCO2E,
+                TOTALCUSTOMERS
+              )
+            
+          })
+        
+      })
+    
+  })
+
+saveRDS(pge_data, "pge_data_2013_2019.rds")
+```
+
+```{r building-in-94108, eval=F}
+pge_data <- read_rds("pge_data_2013_2019.rds")
+
+bldg_pge_by_year <- pge_data %>% 
+  filter(ZIPCODE == 94108) %>% 
+  filter(CUSTOMERCLASS %in% c(
+    "Elec- Commercial",
+    "Elec- Residential",
+    "Gas- Commercial",
+    "Gas- Residential"
+  )) %>% 
+  mutate(
+    ENERGYTYPE = substr(CUSTOMERCLASS,1,1),
+    BUILDINGTYPE = case_when(
+      ENERGYTYPE == "E" ~ substr(CUSTOMERCLASS,7,7),
+      ENERGYTYPE == "G" ~ substr(CUSTOMERCLASS,6,6)
+    )
+  ) %>% 
+  group_by(ZIPCODE, ENERGYTYPE, BUILDINGTYPE, YEAR) %>%
+  summarize(
+    TOTALKBTU = sum(TOTALKBTU, na.rm=T),
+    TOTALTCO2E = sum(TOTALTCO2E, na.rm=T),
+    TOTALCUSTOMERS = mean(TOTALCUSTOMERS, na.rm=T)
+  ) 
+# %>%
+#   group_by(ENERGYTYPE, BUILDINGTYPE, YEAR) %>% #the second group by doesnt make any sense because we are just dealing with one ZIP code here, but it doesnt hurt to keep here
+#   summarize(across(
+#     c(TOTALKBTU,TOTALTCO2E, TOTALCUSTOMERS),
+#     ~sum(.,na.rm=T)
+#   ))
+
+saveRDS(bldg_pge_by_year, "94108_bldg_pge_2013_2019.rds")
+```
+
+```{r read-bldg_pge_by_year}
+bldg_pge_by_year <- read_rds("94108_bldg_pge_2013_2019.rds")
+```
+
+```{r}
+#TODO
+ggplot(
+  bldg_pge_by_year, 
+  aes(
+    x = as.factor(YEAR), 
+    y = TOTALKBTU/1000000
+  )
+) + 
+  geom_bar(stat = "identity", aes(fill = ENERGYTYPE), position = "dodge") + 
+  labs(x = "Year", y = "GBTU", title = "94108 Annual Energy Usage, 2013 to 2019") + 
+  scale_fill_discrete(name="Energy Type",labels = c("Electricity","Gas"))
+```
+
+## building energy consumption by resident
+```{r resident-data, eval =F}
+#get population data in ZIP=94108 2013-2019
+#DATA: acs5
+# names(ca_cbgs_pop) #pop data by year, cbgs levels
+
+resident_pop_by_year <- 
+  ca_cbgs_pop %>%
+  filter(
+    census_block_group 
+    %in% substr(zip_blocks$GEOID10,1,12)) %>%
+  group_by(YEAR = year) %>%
+  summarize(
+    resident_pop = sum(pop)
+  )
+saveRDS(resident_pop_by_year, "94108_resident_pop_by_year.rds")
+```
+
+## building energy consumption by job
+```{r job-count, eval =F}
+#get job counts data from LODES WAC in ZIP=94108 2013-2019
+t <- read_csv("/Volumes/GoogleDrive/My Drive/Data Library/LODES/ca_wac_S000_JT00_2013.csv")
+
+job_cnts <- 2013:2019 %>% 
+  map_dfr(function(year){
+
+    print(year)
+
+    temp <- read_csv(paste0("/Volumes/GoogleDrive/My Drive/Data Library/LODES/ca_wac_S000_JT00_", year, ".csv")) %>%
+      filter(w_geocode %in% zip_blocks$GEOID10) %>%
+      mutate(
+        year = year,
+        job_cnts = C000
+      ) %>%
+      select(
+        w_geocode,
+        year,
+        job_cnts
+      )
+
+    saveRDS(temp, paste0("94108_wac_", year, ".rds"))
+
+    return(temp)
+
+  }) %>%
+  group_by(YEAR = year) %>%
+  summarize(
+    job_cnts=sum(job_cnts)
+  )
+
+saveRDS(job_cnts, "94108_job_total_by_year.rds")
+```
+
+```{r combine-job-res-energy-by-year, eval = F}
+job_cnts <- read_rds("94108_job_total_by_year.rds")
+res_pop <- read_rds("94108_resident_pop_by_year.rds")
+names(job_cnts)
+
+bldg_energy <- bldg_pge_by_year %>%
+  ungroup() %>%
+  left_join(job_cnts) %>%
+  left_join(res_pop) %>%
+  select(-ZIPCODE) %>%
+  mutate(
+    intensity = case_when(
+      BUILDINGTYPE == "C" ~ TOTALKBTU/job_cnts,
+      BUILDINGTYPE == "R" ~ TOTALKBTU/resident_pop
+    )
+  )
+
+saveRDS(bldg_energy, "94108_bldg_energy_by_year.rds")
+```
+
+```{r building-energy-final}
+bldg_energy <- read_rds("94108_bldg_energy_by_year.rds")
+```
+
+```{r G&E*C&R-line-plot}
+bldg_energy %>% 
+  ggplot(
+    aes(
+      x = YEAR,
+      y = intensity
+    )
+  ) + 
+  geom_line(
+    aes(
+      color = BUILDINGTYPE,
+      linetype = ENERGYTYPE
+    ),
+    size = 1
+  ) +
+  labs(x = "Year", y = "kBTUs per resident or job", title = "ZIPCODE 94108 Annual Building Energy Use Intensity, 2013 to 2019", color ="Use Type", linetype = "Energy Type") +
+  scale_linetype_manual(values = c("solid","dotted"), labels = c("Electricity","Gas"))
+```
+
+```{r HDD-CDD, eval = F}
+cdd <- read_csv("CDD_SF_2013_2019.csv")
+hdd <- read_csv("HDD_SF_2013_2019.csv")
+
+HDD_CDD <- data.frame(
+  YEAR = c(2013:2019),
+  CDD = c(9,10,17,7,5,27,2),
+  HDD = c(91,79,80,100,106,80,103)
+)
+
+bldg_energy_normalized <- bldg_energy %>%
+  left_join(HDD_CDD) %>%
+  mutate(
+    intensity_normalized = case_when(
+      ENERGYTYPE == "E" ~ intensity/CDD,
+      ENERGYTYPE == "G" ~ intensity/HDD
+    )
+  )
+
+saveRDS(bldg_energy_normalized, "94108_bldg_energy_normalized.rds")
+```
