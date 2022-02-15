@@ -39,11 +39,11 @@ Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
 acs_vars_2019_5yr <- read_rds("acs_vars_2019_5yr.rds")
 
 ca_cbgs_pop <- readRDS("ca_pop_2013_2019.rds")
-origin_cbgs_pop <- read_rds("origin_cbgs_pop_94108.rds")
+# origin_cbgs_pop <- read_rds("origin_cbgs_pop_94108.rds")
 
-travel_time_mode <- read_rds("94108_travel_time_mode.rds")
+# travel_time_mode <- read_rds("94108_travel_time_mode.rds")
 
-ct_trips <- read_rds("94108_trips.rds")
+# ct_trips <- read_rds("94108_trips.rds")
 ct_visits <- read_rds("94108_trips_vmt_by_year_tract.rds")
 
 ct_trips_ghg_annual <- read_rds("94108_vmt_ghg_total.rds")
@@ -241,7 +241,7 @@ total %>%
 
 # Reflection on GHG emission responsibility allocation
 
-Looking at [USEPA's GHG overview](<https://www.epa.gov/ghgemissions/inventory-us-greenhouse-gas-emissions-and-sinks>), I support the Scope 2 allocation methodology, where the GHG emission happens within your system boundary (whether it's per household or factory) is 100% allocation, plus the upstream emission associated with grid-supplied power etc. While Scope 3 is more end-use oriented, allocating the emissions associated with product manufacturer to users instead of direct profit holders (companies) seems less intuitive to me, and hard to incentivize.
+Looking at [USEPA's GHG overview](https://www.epa.gov/ghgemissions/inventory-us-greenhouse-gas-emissions-and-sinks), I support the Scope 2 allocation methodology, where the GHG emission happens within your system boundary (whether it's per household or factory) is 100% allocation, plus the upstream emission associated with grid-supplied power etc. While Scope 3 is more end-use oriented, allocating the emissions associated with product manufacturer to users instead of direct profit holders (companies) seems less intuitive to me, and hard to incentivize.
 
 # Methodology and Data Sources
 
@@ -259,4 +259,4 @@ Residential population data is from acs5. Job count data is from LODES WAC data.
 
 ## Code availability
 
-Full code can be found in [the supporter file](\#todo).
+Full code can be found in [the supporter file](https://spencer-in-github.github.io/sz-218Y.io/spencerzhang_A3).
