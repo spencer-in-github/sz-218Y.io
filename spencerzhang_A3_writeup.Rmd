@@ -2,7 +2,7 @@
 title: "Sustainability: GHG Emission Analysis in SF 94108"
 author: "Spencer Zhang"
 date: "2/12/2022"
-output: bookdown::html_document2
+output: rmdformats::robobook
 editor_options: 
   chunk_output_type: console
 ---

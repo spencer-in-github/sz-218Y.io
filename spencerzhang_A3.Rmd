@@ -27,19 +27,19 @@ library(jsonlite)
 # Vehicle Emission
 ## Commute data from LODES in 94108
 ```{r zip-94108, eval = F}
-# zctas <- zctas() #Download a Zip Code Tabulation Area (ZCTA) shapefile into R
-# 
-# downtown Palo Alto residential area
-# zip <- zctas %>% 
-#   filter(GEOID10 == "94108") #single line information of 94108
-# 
-# blocks <- blocks("CA") #all block information in CA
-# 
-# zip_blocks <- blocks %>% 
-#   st_centroid() %>% 
-#   .[zip, ] #all blocks in zip=94108
-# saveRDS(zip, "zip_info_94108.rds")
-# saveRDS(zip_blocks, "zip_block_info_94108.rds")
+zctas <- zctas() #Download a Zip Code Tabulation Area (ZCTA) shapefile into R
+
+downtown Palo Alto residential area
+zip <- zctas %>%
+  filter(GEOID10 == "94108") #single line information of 94108
+
+blocks <- blocks("CA") #all block information in CA
+
+zip_blocks <- blocks %>%
+  st_centroid() %>%
+  .[zip, ] #all blocks in zip=94108
+saveRDS(zip, "zip_info_94108.rds")
+saveRDS(zip_blocks, "zip_block_info_94108.rds")
 ```
 
 ```{r read-zip}
@@ -55,25 +55,25 @@ zip_cbgs <-
 ```
 
 ```{r LODES-commute-od-data, eval = F}
-# full_ct_od <- 2013:2019 %>% 
-#   map_dfr(function(year){
-#     
-#     print(year)
-#     
-#     temp <- read_csv(paste0("/Volumes/GoogleDrive/Shared drives/SFBI/Data Library/LODES/ca_od_main_JT01_", year, ".csv.gz")) %>% 
-#       filter(
-#         h_geocode %in% zip_blocks$GEOID10 |
-#           w_geocode %in% zip_blocks$GEOID10
-#       ) %>% 
-#       mutate(year = year)
-#     
-#     saveRDS(temp, paste0("94108_od_", year, ".rds"))
-#     
-#     return(temp)
-#     
-#   }) #5 years data
-# 
-# saveRDS(full_ct_od, "94108_od_full.rds")
+full_ct_od <- 2013:2019 %>%
+  map_dfr(function(year){
+
+    print(year)
+
+    temp <- read_csv(paste0("/Volumes/GoogleDrive/Shared drives/SFBI/Data Library/LODES/ca_od_main_JT01_", year, ".csv.gz")) %>%
+      filter(
+        h_geocode %in% zip_blocks$GEOID10 |
+          w_geocode %in% zip_blocks$GEOID10
+      ) %>%
+      mutate(year = year)
+
+    saveRDS(temp, paste0("94108_od_", year, ".rds"))
+
+    return(temp)
+
+  }) #5 years data
+
+saveRDS(full_ct_od, "94108_od_full.rds")
 ```
 
 ```{r read-commute-od-data, eval = F}
@@ -81,35 +81,35 @@ full_ct_od <- readRDS("94108_od_full.rds")
 ```
 
 ```{r add-inbound/outbound-to-LODES, eval = F}
-# full_ct_od_cross <- full_ct_od %>% 
-#   select(-createdate) %>% 
-#   filter(!(
-#     h_geocode %in% zip_blocks$GEOID10 &
-#       w_geocode %in% zip_blocks$GEOID10
-#   )) %>% #not include people who travel within their zip code
-#   mutate(
-#     direction = ifelse(
-#       h_geocode %in% zip_blocks$GEOID10,
-#       "outbound",
-#       "inbound"
-#     )
-#   ) #commute data where people travel out or into 94108
+full_ct_od_cross <- full_ct_od %>%
+  select(-createdate) %>%
+  filter(!(
+    h_geocode %in% zip_blocks$GEOID10 &
+      w_geocode %in% zip_blocks$GEOID10
+  )) %>% #not include people who travel within their zip code
+  mutate(
+    direction = ifelse(
+      h_geocode %in% zip_blocks$GEOID10,
+      "outbound",
+      "inbound"
+    )
+  ) #commute data where people travel out or into 94108
 ```
 ## routing 
 ```{r filter-out-routing-directions, eval = F}
-# full_ct_od_routing <- full_ct_od_cross %>% 
-#   mutate(
-#     origin = ifelse(
-#       direction == "inbound",
-#       h_geocode,
-#       w_geocode
-#     ),
-#     cbg = origin %>% substr(1,12),
-#     tract = origin %>% substr(1,11)
-#   ) %>% 
-#   filter(!duplicated(tract))
-#Question: why are we filtering out the duplicated??
-#Answer: to do routing only once for the same origin
+full_ct_od_routing <- full_ct_od_cross %>%
+  mutate(
+    origin = ifelse(
+      direction == "inbound",
+      h_geocode,
+      w_geocode
+    ),
+    cbg = origin %>% substr(1,12),
+    tract = origin %>% substr(1,11)
+  ) %>%
+  filter(!duplicated(tract))
+# Question: why are we filtering out the duplicated??
+# Answer: to do routing only once for the same origin
 ```
 
 ```{r routing-mapbox, eval = F}
@@ -128,50 +128,50 @@ od_origin <-
 view(head(full_ct_od_routing)) #contains destination(outside of 94108) tract ids
 view(head(od_origin)) #centroid coordinate(X,Y) for  
 
-# 
-# # nrow(od_origin) #7044
-# 
-# #routing destination (94108 only)
-# od_destination <-
-#   zip %>% 
-#   st_centroid() %>% 
-#   st_coordinates()
+
+# nrow(od_origin) #7044
+
+#routing destination (94108 only)
+od_destination <-
+  zip %>%
+  st_centroid() %>%
+  st_coordinates()
 
 #routing using mapbox
-# od_route <- 
-#   1:ceiling(nrow(od_origin)/1000) %>% 
-#   map_dfr(function(y){
-#     
-#     print(y)
-#     
-#     temp <- 
-#       (y * 1000 - 999) : pmin(y * 1000, nrow(od_origin)) %>% 
-#       map_dfr(function(x){
-#         tryCatch(
-#           mb_directions(
-#             origin = od_origin[x, ],
-#             destination = od_destination,
-#             profile = "driving-traffic"
-#           ) %>% 
-#             mutate(id = x),
-#           error = function(e){
-#             data.frame(id = x)
-#           }
-#         )
-#       }) %>% 
-#       st_as_sf()
-#       
-#       saveRDS(temp, paste0("94108_od_routing_",y,".rds"))
-#       
-#       return(temp)
-#   })
-# saveRDS(od_route, "94108_od_routing_full.rds")
+od_route <-
+  1:ceiling(nrow(od_origin)/1000) %>%
+  map_dfr(function(y){
+
+    print(y)
+
+    temp <-
+      (y * 1000 - 999) : pmin(y * 1000, nrow(od_origin)) %>%
+      map_dfr(function(x){
+        tryCatch(
+          mb_directions(
+            origin = od_origin[x, ],
+            destination = od_destination,
+            profile = "driving-traffic"
+          ) %>%
+            mutate(id = x),
+          error = function(e){
+            data.frame(id = x)
+          }
+        )
+      }) %>%
+      st_as_sf()
+
+      saveRDS(temp, paste0("94108_od_routing_",y,".rds"))
+
+      return(temp)
+  })
+saveRDS(od_route, "94108_od_routing_full.rds")
 
 view(head(od_route))
 ```
 
 ```{r read-commute-od-routed-duration-time, eval = F}
-# od_route <-readRDS("94108_od_routing_full.rds")
+od_route <-readRDS("94108_od_routing_full.rds")
 nrow(full_ct_od_routing)
 
 od_route %>%
@@ -221,63 +221,63 @@ full_od_final <- read_rds("94108_commute_od_routed_2013_2019.rds")
 #visits are "per job" so combine with census data to calculate "per vehicle"
 Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
 
-# ca_cbgs_pop <-
-#   counties("CA", cb = T, progress_bar = F) %>%
-#   pull(COUNTYFP) %>% 
-#   map_dfr(function(x){
-#     getCensus(
-#       name = "acs/acs5",
-#       vintage = 2019,
-#       region = "block group:*",
-#       regionin = paste0("state:06+county:", x),
-#       vars = "B01001_001E"
-#     )
-#   }) %>% 
-#   transmute(
-#     census_block_group =
-#       paste0(state,county,tract,block_group),
-#     pop = B01001_001E
-#   )
-# #names(ca_cbgs_pop) #"census_block_group" "pop" 
-# 
-# test <-
-#   2013:2019 %>%
-#   map_dfr(function(year){
-#     counties("CA", cb = T, progress_bar = F) %>%
-#     pull(COUNTYFP) %>% 
-#     map_dfr(function(x){
-#       getCensus(
-#         name = "acs/acs5",
-#         vintage = year,
-#         region = "block group:*",
-#         regionin = paste0("state:06+county:", x),
-#         vars = "B01001_001E"
-#       )
-#     }) %>% 
-#     transmute(
-#       census_block_group =
-#         paste0(state,county,tract,block_group),
-#       pop = B01001_001E,
-#       year = year
-#     )
-#   })
-# view(head(ca_cbgs_pop))
-#   
-# saveRDS(test, "ca_pop_2013_2019.rds")
+ca_cbgs_pop <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  pull(COUNTYFP) %>%
+  map_dfr(function(x){
+    getCensus(
+      name = "acs/acs5",
+      vintage = 2019,
+      region = "block group:*",
+      regionin = paste0("state:06+county:", x),
+      vars = "B01001_001E"
+    )
+  }) %>%
+  transmute(
+    census_block_group =
+      paste0(state,county,tract,block_group),
+    pop = B01001_001E
+  )
+#names(ca_cbgs_pop) #"census_block_group" "pop"
+
+test <-
+  2013:2019 %>%
+  map_dfr(function(year){
+    counties("CA", cb = T, progress_bar = F) %>%
+    pull(COUNTYFP) %>%
+    map_dfr(function(x){
+      getCensus(
+        name = "acs/acs5",
+        vintage = year,
+        region = "block group:*",
+        regionin = paste0("state:06+county:", x),
+        vars = "B01001_001E"
+      )
+    }) %>%
+    transmute(
+      census_block_group =
+        paste0(state,county,tract,block_group),
+      pop = B01001_001E,
+      year = year
+    )
+  })
+view(head(ca_cbgs_pop))
+
+saveRDS(test, "ca_pop_2013_2019.rds")
 ca_cbgs_pop <- readRDS("ca_pop_2013_2019.rds")
 
-# origin_cbgs_pop <-
-#   full_od_final %>%
-#   select(-starts_with("S")) %>%
-#   mutate(
-#     h_cbgs = substr(h_geocode, 1, 12)
-#   ) %>%
-#   left_join(
-#     ca_cbgs_pop,
-#     by = c("h_cbgs" = "census_block_group", "year" = "year")
-#   )
-# 
-# saveRDS(origin_cbgs_pop, "origin_cbgs_pop_94108.rds")
+origin_cbgs_pop <-
+  full_od_final %>%
+  select(-starts_with("S")) %>%
+  mutate(
+    h_cbgs = substr(h_geocode, 1, 12)
+  ) %>%
+  left_join(
+    ca_cbgs_pop,
+    by = c("h_cbgs" = "census_block_group", "year" = "year")
+  )
+
+saveRDS(origin_cbgs_pop, "origin_cbgs_pop_94108.rds")
 
 origin_cbgs_pop <- read_rds("origin_cbgs_pop_94108.rds")
 ```
@@ -298,78 +298,78 @@ origin_cbgs_pop %>% filter(is.na(pop))
 ```{r travel-mode-by-time}
 acs_vars_2019_5yr <- read_rds("acs_vars_2019_5yr.rds")
 
-# travel_time_mode <-
-#   counties("CA", cb = T, progress_bar = F) %>%
-#   pull(COUNTYFP) %>% 
-#   map_dfr(function(x){
-#     getCensus(
-#       name = "acs/acs5",
-#       vintage = 2019,
-#       region = "block group:*",
-#       regionin = paste0("state:06+county:", x),
-#       vars = "group(B08134)" #Mode to work by travel time to work
-#     )
-#   }) %>% 
-#   mutate(
-#     cbg =
-#       paste0(state,county,tract,block_group)
-#   ) %>%
-#   filter(cbg %in% origin_cbgs_pop$h_cbgs) %>% 
-#   select(!c(GEO_ID,state,county,tract,block_group,NAME) & !ends_with(c("EA","MA","M"))) %>%
-#   pivot_longer(
-#     ends_with("E"),
-#     names_to = "variable",
-#     values_to = "estimate"
-#   ) %>%
-#   left_join(
-#     acs_vars_2019_5yr %>% 
-#       select(name, label), 
-#     by = c("variable" = "name")
-#   ) %>% 
-#   select(-variable) %>% 
-#   separate(
-#     label,
-#     into = c(NA, NA, "total", "mode", "carpool", "time"),
-#     sep = "!!"
-#   ) %>% 
-#   mutate(
-#     mode = case_when(
-#       total %in% c(
-#         "Less than 10 minutes",
-#         "10 to 14 minutes",
-#         "15 to 19 minutes",
-#         "20 to 24 minutes",
-#         "25 to 29 minutes",
-#         "30 to 34 minutes",
-#         "35 to 44 minutes",
-#         "45 to 59 minutes",
-#         "60 or more minutes"
-#       ) ~ "Total",
-#       mode == "Drove alone:" ~ mode,
-#       carpool %in% c(
-#         "In 2-person carpool:",
-#         "In 3-or-more-person carpool:"
-#       ) ~ carpool
-#     ),
-#     time = case_when(
-#       mode == "Total" ~ total,
-#       mode == "Drove alone:" ~ carpool,
-#       mode == carpool ~ time
-#     )
-#   ) %>% 
-#   filter(!is.na(time)) %>% 
-#   select(-total, -carpool) %>% 
-#   pivot_wider(
-#     names_from = mode,
-#     values_from = estimate
-#   ) %>% 
-#   mutate(
-#     perc_veh1 = `Drove alone:`/Total,
-#     perc_veh2 = `In 2-person carpool:`/Total,
-#     perc_veh3 = `In 3-or-more-person carpool:`/Total
-#   )
-# 
-# saveRDS(travel_time_mode, "94108_travel_time_mode.rds")
+travel_time_mode <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  pull(COUNTYFP) %>%
+  map_dfr(function(x){
+    getCensus(
+      name = "acs/acs5",
+      vintage = 2019,
+      region = "block group:*",
+      regionin = paste0("state:06+county:", x),
+      vars = "group(B08134)" #Mode to work by travel time to work
+    )
+  }) %>%
+  mutate(
+    cbg =
+      paste0(state,county,tract,block_group)
+  ) %>%
+  filter(cbg %in% origin_cbgs_pop$h_cbgs) %>%
+  select(!c(GEO_ID,state,county,tract,block_group,NAME) & !ends_with(c("EA","MA","M"))) %>%
+  pivot_longer(
+    ends_with("E"),
+    names_to = "variable",
+    values_to = "estimate"
+  ) %>%
+  left_join(
+    acs_vars_2019_5yr %>%
+      select(name, label),
+    by = c("variable" = "name")
+  ) %>%
+  select(-variable) %>%
+  separate(
+    label,
+    into = c(NA, NA, "total", "mode", "carpool", "time"),
+    sep = "!!"
+  ) %>%
+  mutate(
+    mode = case_when(
+      total %in% c(
+        "Less than 10 minutes",
+        "10 to 14 minutes",
+        "15 to 19 minutes",
+        "20 to 24 minutes",
+        "25 to 29 minutes",
+        "30 to 34 minutes",
+        "35 to 44 minutes",
+        "45 to 59 minutes",
+        "60 or more minutes"
+      ) ~ "Total",
+      mode == "Drove alone:" ~ mode,
+      carpool %in% c(
+        "In 2-person carpool:",
+        "In 3-or-more-person carpool:"
+      ) ~ carpool
+    ),
+    time = case_when(
+      mode == "Total" ~ total,
+      mode == "Drove alone:" ~ carpool,
+      mode == carpool ~ time
+    )
+  ) %>%
+  filter(!is.na(time)) %>%
+  select(-total, -carpool) %>%
+  pivot_wider(
+    names_from = mode,
+    values_from = estimate
+  ) %>%
+  mutate(
+    perc_veh1 = `Drove alone:`/Total,
+    perc_veh2 = `In 2-person carpool:`/Total,
+    perc_veh3 = `In 3-or-more-person carpool:`/Total
+  )
+
+saveRDS(travel_time_mode, "94108_travel_time_mode.rds")
 
 travel_time_mode <- read_rds("94108_travel_time_mode.rds")
 ```

@@ -1,0 +1,29 @@
+---
+title: "a4_demo"
+author: "Spencer Zhang"
+date: "2/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(raster) 
+#have a select function as tidyverse
+#to use select in either package, specify it as "dplyr::select()"
+```
+
+```{r}
+"/Volumes/GoogleDrive/Shared drives/SFBI/Data Library
+/OCOF/"
+```
+
+```{r}
+slr <- 25
+rp <- 20
+
+path <- paste0("/Volumes/GoogleDrive/Shared drives/SFBI/Data Library/OCOF/san_mateo_flooding_slr", slr, "/flooding/v2.1/county_san_mateo_flddepth_slr025_w001.tif")
+```
+
