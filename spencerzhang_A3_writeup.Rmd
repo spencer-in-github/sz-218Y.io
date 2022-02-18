@@ -9,7 +9,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F, warning = F, message = F)
-options(tigris_use_cache = TRUE)
+options(tigris_use_cache = TRUE, use_bookdown = TRUE)
 ```
 
 ```{r library}
