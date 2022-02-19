@@ -106,7 +106,7 @@ bldg_energy_normalized %>%
 
 # Building emission
 
-Look closely at the building emission sector, the commercial and residential building present different emission patterns as well (Fig \@ref(fig:total-bldg-ghg-plot)). Overall, the building GHG emission is decreasing in 2013-2019 period. The commercial buildings emit a lot more GHG in its electricity usage than residential buildings ------ Think about the lighting and heavy HVAC in your big whole-floor offices! The GHG emission from gas comsumption is relatively same in both commercial and residential, which typically is associated with heating and cooking. The gas GHG emission remains relative unchanged over the course of 7 years, while the electricity GHG emission is decreasing in both buildings. This decreasing trend may come from changes in the energy structure of electricity generation, or the number of occupants in the building.
+Look closely at the building emission sector, the commercial and residential building present different emission patterns as well (Fig \@ref(fig:total-bldg-ghg-plot)). Overall, the building GHG emission is decreasing in 2013-2019 period. The commercial buildings emit a lot more GHG in its electricity usage than residential buildings ------ Think about the lighting and heavy HVAC in your big whole-floor offices! The GHG emission from gas consumption is relatively same in both commercial and residential, which typically is associated with heating and cooking. The gas GHG emission remains relative unchanged over the course of 7 years, while the electricity GHG emission is decreasing in both buildings. This decreasing trend may come from changes in the energy structure of electricity generation, or the number of occupants in the building.
 
 ```{r total-bldg-ghg-plot, fig.align='center', fig.cap= "The building GHG emission in 94108, by Building (c/r) and Energy (elec/gas) type"}
 # New facet label names for building type variable
@@ -185,6 +185,47 @@ bldg_energy_normalized %>%
 
 Commute-associated GHG emission contributes majorly to the total GHG emission in an urban region. Commute transportation emission is strongly associated with individuals. How many people work in the given region? How many people commute to this region using what means and by what duration? Public transit, carpooling, or driving alone? Gas-fueled or electrified? Every single decision we as city occupants make, contributes to the final emission that, we as a whole, endure.
 
+## Commute trip patterns
+First, let's look at where the commute trips are happening. Below is a map of home locations (by tract level) of commuters to 94108 in 2019. The numbers indicate the total trips made by commuters from the tract to 94108 in 2019. 
+As we can see, the chosen ZIP region at the heart of SF downtown, occupies a great variety of workers from all over the state. Among them, a great percentage may come to the area by airplanes while some are remote workers who contribute relatively negligible to 94108's total GHG emission. This consideration would be reflected by the travel mode data we gathered from ACS5 in later GHG emission calculation.
+```{r interactive-map-of-commute-by-tract}
+ct_visits <- read_rds("94108_trips_vmt_by_year_tract.rds")
+
+visits_pal <- colorNumeric(
+  palette = "Reds",
+  domain = ct_visits %>% filter(year == "2019") %>%
+    arrange(desc(visits)) %>% 
+    pull(visits)
+)
+
+leaflet() %>% 
+  addMapboxTiles(
+    style_id = "light-v9",
+    username = "mapbox"
+  ) %>% 
+  addPolygons(
+    data = zip_cbgs,
+    fill = F
+  ) %>% 
+  addPolygons(
+    data = ct_visits %>% filter(year == "2019"),
+    fillColor = ~visits_pal(visits),
+    color = "red",
+    weight = 1,
+    fillOpacity = 0.75,
+    label = ~visits
+  ) %>% 
+  addLegend(
+    data = ct_visits %>% filter(year == "2019"),
+    pal = visits_pal,
+    values = ct_visits %>% filter(year == "2019") %>%
+      arrange(desc(visits)) %>% 
+      pull(visits), 
+    title = "Number of<br>commute trips<br>to 94108 in 2019<br>by origin tract"
+  )
+```
+
+## Total commute GHG emission
 The commute-associated GHG emission in 94108 from 2013 to 2019 is shown in Fig \@ref(fig:commute-emission-pop), with the black line indicating the relevant population growth (the number of job offered in the area and the number of residents). Intuitively speaking, the trend between commute emission and population growth is not corresponding in the period of 2013 to 2015. The commute emission had a particular peak value in 2014, then started to decrease significantly till the year 2016, afterwards it climbed back corresponding to relevant population change. The major emission shift from (2013,2015) period to (2016,2019) period may come from the change of commuter behavior.
 
 ```{r commute-emission-pop, fig.align='center', fig.cap= "The annual GHG emission associated with commute transportation in 94108 from 2013 to 2019"}
@@ -238,6 +279,7 @@ total %>%
     subtitle = "Line indicates the number of relevant population"
   )
 ```
+
 
 # Reflection on GHG emission responsibility allocation
 

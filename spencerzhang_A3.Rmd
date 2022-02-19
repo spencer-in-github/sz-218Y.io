@@ -25,11 +25,15 @@ library(jsonlite)
 ```
 
 # Vehicle Emission
-## Commute data from LODES in 94108
-```{r zip-94108, eval = F}
-zctas <- zctas() #Download a Zip Code Tabulation Area (ZCTA) shapefile into R
+## Commute job counts from LODES
+Origin-destination job counts by block to block level
 
-downtown Palo Alto residential area
+ZIP code, blocks data preparation
+```{r zip-94108, eval = F}
+zctas <- zctas() 
+#Download a Zip Code Tabulation Area (ZCTA) shapefile into R
+
+#downtown Palo Alto residential area
 zip <- zctas %>%
   filter(GEOID10 == "94108") #single line information of 94108
 
@@ -54,6 +58,7 @@ zip_cbgs <-
   st_as_sf()
 ```
 
+LODES OD data download and save locally
 ```{r LODES-commute-od-data, eval = F}
 full_ct_od <- 2013:2019 %>%
   map_dfr(function(year){
@@ -76,8 +81,33 @@ full_ct_od <- 2013:2019 %>%
 saveRDS(full_ct_od, "94108_od_full.rds")
 ```
 
-```{r read-commute-od-data, eval = F}
+read LODES OD local file
+```{r read-commute-od-data}
 full_ct_od <- readRDS("94108_od_full.rds")
+#full job-to-job OD data where either work location or home location is in 94108
+#block-to-block level
+```
+
+categorize OD data entries by whether or not crossed the ZIP code boundary 
+"within": home and workplace are within ZIPcode
+"outbound": home in ZIP, workplace outside of ZIP
+"inbound": home outside of ZIP, workplace in ZIP
+```{r job-od-categorization}
+#separate the jobs into inbound, outbound, and within the same zip code
+zip_od <- full_ct_od %>%
+  select(-createdate) %>%
+  mutate(
+    direction = case_when(
+      h_geocode %in% zip_blocks$GEOID10 &
+        w_geocode %in% zip_blocks$GEOID10 ~ "within",
+      h_geocode %in% zip_blocks$GEOID10 ~ "outbound",
+      w_geocode %in% zip_blocks$GEOID10 ~ "inbound"
+    )
+  )
+
+table(zip_od$direction)
+# inbound outbound   within 
+# 162086    39853     2896 
 ```
 
 ```{r add-inbound/outbound-to-LODES, eval = F}
@@ -94,8 +124,12 @@ full_ct_od_cross <- full_ct_od %>%
       "inbound"
     )
   ) #commute data where people travel out or into 94108
+
+table(full_ct_od_cross$direction)
 ```
-## routing 
+
+## Routing from home to workplace 
+The original OD data is on block-to-block level. To simplify the routing, we group data into **tract to ZIP code** level for later routing with mapbox services.
 ```{r filter-out-routing-directions, eval = F}
 full_ct_od_routing <- full_ct_od_cross %>%
   mutate(
@@ -112,6 +146,8 @@ full_ct_od_routing <- full_ct_od_cross %>%
 # Answer: to do routing only once for the same origin
 ```
 
+Routing for ODs that crosses ZIP code boundary.
+Remember there are ODs all within the ZIP code boundary not counted here.
 ```{r routing-mapbox, eval = F}
 # ca_tracts <- tracts("CA") #census acs5/1 only to tract levels
 #only decennial data offers blockgroup levels
@@ -171,7 +207,7 @@ view(head(od_route))
 ```
 
 ```{r read-commute-od-routed-duration-time, eval = F}
-od_route <-readRDS("94108_od_routing_full.rds")
+od_route <- readRDS("94108_od_routing_full.rds")
 nrow(full_ct_od_routing)
 
 od_route %>%
@@ -211,11 +247,122 @@ full_od_final <- full_ct_od_cross %>%
 saveRDS(full_od_final,"94108_commute_od_routed_2013_2019.rds")
 ```
 
-```{r read-commute-routed-2013-2019, eval = F}
+```{r read-commute-routed-2013-2019}
 full_od_final <- read_rds("94108_commute_od_routed_2013_2019.rds")
+
+view(head(full_od_final))
 ```
 
-## combine population data from acs5
+```{r}
+# ODs with routing results
+nrow(full_od_final)
+# 201939
+
+# original full ODs dataset
+nrow(full_ct_od)
+# 204835
+# 3k entries more, from the OD all within zip code boundary trips
+```
+
+### routing for within ODs
+to address the nearly 3k block-to-block that are actually within the same ZIPcode
+```{r filter-within-OD-trips}
+within_routing <- zip_od %>%
+  filter(direction == "within") %>%
+  group_by(
+    w_geocode, h_geocode
+  ) %>%
+  summarize(n = n(), S000 = sum(S000))
+
+view(head(within_routing))
+
+table(within_routing$n)
+#   1   2   3   4   5   6   7 
+# 759 337 161 100  53  35  15 
+```
+
+To simplify, we route within-OD trips by workplace location to centroid of ZIPcode
+```{r routing-for-within-OD-trips}
+od_within_origin <-
+  within_routing %>%
+  select(w_geocode) %>%
+  left_join(zip_blocks %>% select(w_geocode = GEOID10)) %>%
+  st_as_sf() %>%
+  st_centroid() %>%
+  st_coordinates() #add geometry information into the od_origins for later routing
+
+# nrow(od_within_origin) #1460
+
+#routing destination (94108 only)
+od_destination <-
+  zip %>%
+  st_centroid() %>%
+  st_coordinates()
+
+#routing using mapbox
+od_within_route <-
+  1:ceiling(nrow(od_within_origin)/100) %>%
+  map_dfr(function(y){
+
+    print(y)
+
+    temp <-
+      (y * 100 - 99) : pmin(y * 100, nrow(od_within_origin)) %>%
+      map_dfr(function(x){
+        tryCatch(
+          mb_directions(
+            origin = od_within_origin[x, ],
+            destination = od_destination,
+            profile = "driving-traffic"
+          ) %>%
+            mutate(id = x),
+          error = function(e){
+            data.frame(id = x)
+          }
+        )
+      }) %>%
+      st_as_sf()
+
+      saveRDS(temp, paste0("94108_od_within_routing_",y,".rds"))
+
+      return(temp)
+  })
+saveRDS(od_within_route, "94108_od_within_routing_full.rds")
+
+view(head(od_within_route))
+```
+
+```{r}
+within_routed <- within_routing %>%
+  cbind(od_within_route) %>%
+  select(-n, -S000, -id)
+```
+
+```{r full-OD-routed-data, eval = F}
+full_routed <-
+  zip_od %>%
+  filter(direction == "within") %>%
+  left_join(
+    within_routed, by = c("w_geocode", "h_geocode")
+  ) %>%
+  mutate(
+    visits = S000*261,
+    origin = h_geocode,
+    tract = substr(h_geocode, 1, 11)
+  ) %>% select(-geometry) %>%
+  rbind(
+    full_od_final
+  )
+
+saveRDS(full_routed, "full_routed_94108.rds")
+```
+
+### duration, distance, visits of FULL OD in zip94108
+```{r}
+full_routed <- read_rds("full_routed_94108.rds")
+```
+
+## Grab population data from ACS5
 ```{r pop-data}
 #convert distance and visits in full_od_final into VMT
 #visits are "per job" so combine with census data to calculate "per vehicle"
@@ -267,7 +414,7 @@ saveRDS(test, "ca_pop_2013_2019.rds")
 ca_cbgs_pop <- readRDS("ca_pop_2013_2019.rds")
 
 origin_cbgs_pop <-
-  full_od_final %>%
+  full_routed %>%
   select(-starts_with("S")) %>%
   mutate(
     h_cbgs = substr(h_geocode, 1, 12)
@@ -283,18 +430,20 @@ origin_cbgs_pop <- read_rds("origin_cbgs_pop_94108.rds")
 ```
 
 There are three census block groups that have no population documented, excluded from this analysis. They are 060379304011, 060378002043, 060378002043.
-##TODO: find out where are these places and why they have no routing as well
 ```{r eval = F}
 sum(is.na(origin_cbgs_pop$pop)) #3
 sum(is.na(origin_cbgs_pop$duration)) #4
 
+#TODO: find out where are these places and why they have no routing as well
 origin_cbgs_pop %>% filter(is.na(pop))
 #060379304011
 #060378002043
 #060378002043
 ```
 
-## travel mode
+## Create travel mode for later turning job counts into vehicle counts
+Since not every commuter travel by driving alone, we need the travel mode information for all the related tracts to convert our job counts, duration, travel time into actual vehicle miles traveled.
+We assume the travel mode is constant from 2013 to 2019.
 ```{r travel-mode-by-time}
 acs_vars_2019_5yr <- read_rds("acs_vars_2019_5yr.rds")
 
@@ -374,6 +523,7 @@ saveRDS(travel_time_mode, "94108_travel_time_mode.rds")
 travel_time_mode <- read_rds("94108_travel_time_mode.rds")
 ```
 
+### combine travel mode with job count trips -> get vehicle counts
 ```{r ct-trips-construct, eval = F}
 ct_trips <-
   origin_cbgs_pop %>% 
@@ -423,7 +573,7 @@ ct_visits <- ct_trips %>%
     vmt = sum(vmt)
   ) %>%
   st_drop_geometry() %>% 
-  left_join(tracts(state = "CA") %>% select(tract = GEOID)) %>% 
+  left_join(tracts(state = "CA") %>% select(tract = GEOID)) %>%
   st_as_sf()
 
 saveRDS(ct_visits, "94108_trips_vmt_by_year_tract.rds")
