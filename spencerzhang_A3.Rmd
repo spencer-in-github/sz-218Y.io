@@ -565,14 +565,14 @@ saveRDS(ct_trips, "94108_trips.rds")
 ct_trips <- read_rds("94108_trips.rds")
 
 ct_visits <- ct_trips %>%
-  group_by(tract, year) %>%
+  group_by(tract, year, direction) %>%
   summarize(
+    direction = first(direction),
     visits = sum(visits),
     duration = mean(duration),
     distance = mean(distance),
     vmt = sum(vmt)
-  ) %>%
-  st_drop_geometry() %>% 
+  ) %>% 
   left_join(tracts(state = "CA") %>% select(tract = GEOID)) %>%
   st_as_sf()
 
@@ -640,26 +640,73 @@ emfac <-
 ```
 
 ```{r GHG-by-year-total,eval = F}
-ct_trips_ghg_by_year <-
-  2013:2019 %>%
-  map_dfr(function(y){
-    emfac %>% 
-  mutate(
-    trips = Percent_Trips * sum(ct_trips %>% filter(year == y) %>% .$visits, na.rm = T),
-    vmt = Percent_Miles * sum(ct_trips %>% filter(year == y) %>% .$vmt, na.rm = T),
-    ghg = vmt*MTCO2_Running_Exhaust + trips*MTCO2_Start_Exhaust*2,
-    year = y
+view(head(ct_trips))
+
+direction <- c("within", "inbound", "outbound")
+
+ghg_prep <- ct_trips %>%
+  group_by(year,direction) %>%
+  summarize(
+    vmt = sum(vmt, na.rm = T),
+    trips = sum(visits, na.rm = T)
   )
-  })
 
-ct_trips_ghg_annual <-
-  ct_trips_ghg_by_year %>%
-  group_by(year) %>%
-  summarize(trips = sum(trips),
-            vmt = sum(vmt),
-            ghg = sum(ghg))
+vehicle_ghg <-
+  1:6 %>%
+  map_dfr(function(x){
+    rbind(ghg_prep)
+  }) %>%
+  cbind(1:21 %>%
+  map_dfr(function(x){
+    rbind(emfac)
+  })) %>%
+  mutate(
+    ghg = Percent_Miles * vmt * MTCO2_Running_Exhaust + Percent_Trips * trips * trips * MTCO2_Start_Exhaust *2
+  ) %>%
+  group_by(year, direction) %>%
+  summarize(ghg = sum(ghg))
+  
+saveRDS(vehicle_ghg, "94108_vehicle_ghg_by_dir.rds")
 
-saveRDS(ct_trips_ghg_annual, "94108_vmt_ghg_total.rds")
+# ct_trips_ghg_by_year <-
+#   2013:2019 %>%
+#   map_dfr(function(y){
+#     
+#     print(y)
+#     
+#     1:3 %>%
+#     map_dfr(function(dir){
+#       
+#       print(direction[dir])
+#       
+#       temp = emfac %>% 
+#       mutate(
+#         trips = sum(Percent_Trips * sum(ct_trips %>% filter(year == y, direction == direction[dir]) %>% .$visits, na.rm = T)),
+#         vmt = sum(Percent_Miles * sum(ct_trips %>% filter(year == y, direction == direction[dir]) %>% .$vmt, na.rm = T)),
+#         ghg =  vmt * MTCO2_Running_Exhaust + trips*MTCO2_Start_Exhaust*2,
+#         year = y,
+#         direction = direction[dir])
+#       
+#       print(temp$trips)
+#       
+#       return(temp)
+#       
+#     })
+#   })
+# 
+# sum(ct_trips %>% filter(year == 2013, direction == "within") %>% .$visits, na.rm = T)
+# 
+# ct_trips_ghg_annual <-
+#   ct_trips_ghg_by_year %>%
+#   group_by(year, direction) %>%
+#   summarize(trips = sum(trips),
+#             vmt = sum(vmt),
+#             ghg = sum(ghg))
+# 
+# saveRDS(ct_trips_ghg_annual, "94108_vmt_ghg_total.rds")
+# 
+# 
+# sum(ct_trips %>% filter(year == 2019, direction == "inbound") %>% .$visits, na.rm = T)
 ```
 
 
