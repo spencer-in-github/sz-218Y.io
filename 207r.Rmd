@@ -1,0 +1,55 @@
+---
+title: "207r-report"
+author: "Spencer Zhang"
+date: "2/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pge_data <- read_rds("pge_data_2013_2019.rds")
+
+view(head(pge_data))
+
+energy <- pge_data %>%
+  filter(
+    ZIPCODE %in% c(94105, 94111)
+  )
+```
+
+```{r monthly}
+
+energy %>% 
+  filter(YEAR == 2019) %>%
+  filter(!`CUSTOMERCLASS` %in% c("Elec- Industrial", "Gas- Industrial")) %>%
+  ggplot() +
+  geom_bar(
+    aes(x = MONTH, y = TOTALKBTU), stat = "identity"
+  ) + facet_grid(rows = 'CUSTOMERCLASS', scales = "free") + 
+  labs(x = "Month of the year", y = "Total kBTU",
+       title = "The building energy consumption in ZIPCODE 94105 and 94111")
+
+ggsave("/Volumes/GoogleDrive/My Drive/My 207R/Applied Integrative Design Report/bldg_energy.png")
+```
+
+```{r}
+energy %>%
+  filter(YEAR == 2019) %>%
+  filter(`CUSTOMERCLASS` %in% c("Elec- Commercial", "Elec- Residential")) %>%
+  filter(MONTH %in% c(6,7,8,9) ) %>%
+  mutate(result = sum(TOTALKBTU *0.05),
+         car = sum(TOTALTCO2E *0.05))
+```
+
+```{r}
+energy %>%
+  filter(YEAR == 2019) %>%
+  filter(`CUSTOMERCLASS` %in% c("Gas- Commercial", "Gas- Residential")) %>%
+  filter(MONTH %in% c(11,12,1,2) ) %>%
+  mutate(result = sum(TOTALKBTU *0.05),
+         car = sum(TOTALTCO2E *0.05))
+```
+

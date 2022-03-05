@@ -1,0 +1,127 @@
+---
+title: "Untitled"
+author: "Spencer Zhang"
+date: "2/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(censusapi)
+library(mapview)
+library(leaflet)
+library(mapboxapi)
+library(readr)
+library(jsonlite)
+```
+
+```{r}
+epa_cbg <- block_groups("CA","San Mateo", cb = F, progress_bar = F, year = 2019) %>% 
+  filter(GEOID == "060816119003") %>% 
+  st_transform(4326)
+
+epa_bldgs <- readRDS("epa_bldg.rds") %>% 
+  .[epa_cbg,]
+
+epa_blocks <- 
+  # blocks("CA","San Mateo", progress_bar = F, year = 2020) %>% 
+  readRDS("epa_blocks.rds") %>% 
+  st_transform(4326) %>% 
+  .[epa_cbg,]
+
+acs_vars_2019_5yr <- readRDS("acs_vars_2019_5yr.rds")
+
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+epa_blocks_pop <-
+  getCensus(
+    name = "dec/pl",
+    vintage = 2020,
+    region = "block:*", 
+    regionin = "state:06+county:081",
+    vars = "P1_001N"
+  ) %>% 
+  transmute(
+    GEOID20 = paste0(state,county,tract,block),
+    pop = estimate
+  ) %>% 
+  filter(GEOID20 %in% epa_blocks$GEOID20)
+
+smc_bg_vehicle <-
+  getCensus(
+    name = "acs/acs5",
+    vintage = 2019,
+    region = "block group:*",
+    regionin = "state:06+county:081",
+    vars = "group(B25044)"
+  ) %>% 
+  mutate(
+    cbg =
+      paste0(state,county,tract,block_group)
+  ) %>% 
+  dplyr::select(!c(GEO_ID,state,county,tract,block_group,NAME) & !ends_with(c("EA","MA","M"))) %>%
+  pivot_longer(
+    ends_with("E"),
+    names_to = "variable",
+    values_to = "estimate"
+  ) %>%
+  left_join(
+    acs_vars_2019_5yr %>% 
+      dplyr::select(name, label), 
+    by = c("variable" = "name")
+  ) %>% 
+  dplyr::select(-variable) %>% 
+  separate(
+    label,
+    into = c(NA, NA, "tenure", "vehicles"),
+    sep = "!!"
+  ) %>% 
+  filter(!is.na(vehicles)) %>% 
+  filter(cbg %in% epa_cbg$GEOID)
+
+smc_bg_vehicle_total <- smc_bg_vehicle %>% 
+  filter(vehicles != "No vehicle available") %>% 
+  mutate(
+    vehicles = substr(vehicles, 1, 1) %>% as.numeric(),
+    vehicle_count = vehicles * estimate
+  ) %>% 
+  group_by(cbg) %>% 
+  summarize(vehicle_total = sum(vehicle_total))
+#get vehicles in total
+```
+
+```{r}
+epa_block_veh_per_bldg <-
+  epa_bldg %>% 
+  filter(is.na(___)) %>% # any non-residential buildings?
+  select(___) %>% # unique ID for each building
+  st_centroid() %>% 
+  st_join(___ %>% select(___)) %>% # block shapes
+  st_join(___ %>% select(cbg = ___)) %>% # cbg shapes
+  st_drop_geometry() %>% 
+  group_by(___, ___) %>% # "assuming population is distributed evenly across buildings in a block"
+  summarize(bldg_count = ___) %>% # how to get counts?
+  left_join(___) %>% # census dataset
+  left_join(___) %>% # census dataset
+  group_by(___) %>% # "and vehicles are distributed evenly across population"
+  mutate(
+    veh_per_person = ___/sum(___),
+    ppl_per_bldg = ___/___,
+    veh_per_bldg = ___*___ # fractional result ok
+  )
+
+# dataset with individual buildings, vehicle counts for each building
+epa_veh_per_bldg <- epa_bldg %>% 
+  filter(is.na(___)) %>% 
+  select(___) %>% 
+  st_centroid() %>% 
+  st_join(___ %>% select(___)) %>% 
+  left_join(___ %>% select(___, ___))
+```
+

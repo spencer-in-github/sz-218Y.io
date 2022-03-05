@@ -1,0 +1,112 @@
+---
+title: "a5-demo"
+author: "Spencer Zhang"
+date: "3/1/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(jsonlite)
+library(tidyverse)
+library(sf)
+```
+
+```{r}
+temp <- fromJSON("http://www.purpleair.com/json?tempAccess=UniversityofWashingtonSeattle") %>% 
+  .$results
+
+temp_clean <- temp %>% 
+  filter(!is.na(Stats)) %>% 
+  mutate(
+    ParentID = ifelse(
+      is.na(ParentID),
+      ID,
+      ParentID
+    ),
+    pm2.5_1week = 
+      Stats %>% 
+      map(function(row){
+        
+        row %>% 
+          fromJSON() %>% 
+          unlist() %>% 
+          as.data.frame() %>% 
+          .["v6",] %>% 
+          as.numeric()
+        
+      }) %>% 
+      unlist()
+  ) %>% 
+  select(
+    sensor_index = ParentID,
+    Label,
+    DEVICE_LOCATIONTYPE,
+    THINGSPEAK_PRIMARY_ID,
+    THINGSPEAK_PRIMARY_ID_READ_KEY,
+    THINGSPEAK_SECONDARY_ID,
+    THINGSPEAK_SECONDARY_ID_READ_KEY,
+    Lat,
+    Lon,
+    pm2.5_1week,
+    humidity,
+    temperature = temp_f
+  )
+
+test <- temp_clean %>% 
+  mutate(
+    channel = ifelse(
+      is.na(DEVICE_LOCATIONTYPE),
+      "B",
+      "A"
+    )
+  ) %>% 
+  filter(!duplicated(paste(sensor_index,channel))) %>%
+  group_by(sensor_index) %>% 
+  mutate(
+    pm2.5_1week = mean(pm2.5_1week, na.rm = T),
+    humidity = mean(as.numeric(humidity), na.rm = T),
+    temperature = mean(as.numeric(temperature), na.rm = T)
+  ) %>% 
+  pivot_wider(
+    -c(Label),
+    names_from = "channel",
+    values_from = c(
+      "Label",
+      "DEVICE_LOCATIONTYPE",
+      "THINGSPEAK_PRIMARY_ID",
+      "THINGSPEAK_PRIMARY_ID_READ_KEY",
+      "THINGSPEAK_SECONDARY_ID",
+      "THINGSPEAK_SECONDARY_ID_READ_KEY"
+    )
+  ) %>% 
+  filter(
+    !is.na(Lon),
+    !is.na(Lat)
+  ) %>% 
+  st_as_sf(coords = c("Lon","Lat"), crs = 4326) %>% 
+  transmute(
+    sensor_index,
+    name = Label_A,
+    location_type = DEVICE_LOCATIONTYPE_A,
+    pm2.5_1week,
+    humidity,
+    temperature,
+    primary_id_a = THINGSPEAK_PRIMARY_ID_A,
+    primary_key_a = THINGSPEAK_PRIMARY_ID_READ_KEY_A,
+    secondary_id_a = THINGSPEAK_SECONDARY_ID_A,
+    secondary_key_a = THINGSPEAK_SECONDARY_ID_READ_KEY_A,
+    primary_id_b = THINGSPEAK_PRIMARY_ID_B,
+    primary_key_b = THINGSPEAK_PRIMARY_ID_READ_KEY_B,
+    secondary_id_b = THINGSPEAK_SECONDARY_ID_B,
+    secondary_key_b = THINGSPEAK_SECONDARY_ID_READ_KEY_B
+  )
+```
+
+```{r}
+
+```
+
