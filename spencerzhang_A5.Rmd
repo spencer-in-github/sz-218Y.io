@@ -1,5 +1,5 @@
 ---
-title: "AQI shiny dashboard README"
+title: "AQI shiny dashboard documentation"
 author: "Spencer Zhang"
 date: "3/11/2022"
 output: bookdown::html_document2
@@ -75,7 +75,8 @@ smc_sensors <-
 
 ## AQI data processing for Redwood City and San Mateo City
 
-In total, Redwood City has 105 sensors and San Mateo City has 108 sensors. The sensors are disapportionaly distributed according to the choice of the purchased customers. In order to make the data representative for the City, we used voronoi technique to assign the area of the city to its closet sensors. The final PM2.5 concentration is a weighted average of the sensor data by its assigned adjacent area. The voronoi technique is applied seperately for indoor and outdoor sensors.
+In total, Redwood City has 105 sensors and San Mateo City has 108 sensors. The sensors are disapportionaly distributed according to the choice of the purchased customers. In order to make the data representative for the city, we used voronoi technique to assign the area of the city to its closest sensors. The final PM2.5 concentration is a weighted average of the sensor data by its assigned adjacent area. The voronoi technique is applied seperately for indoor and outdoor sensors.
+
 ```{r rwc&smc-sensors}
 rwc_boundary <- places(state = "CA", cb = T) %>%
   filter(NAME == "Redwood City")
