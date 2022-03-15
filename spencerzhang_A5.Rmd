@@ -1,5 +1,5 @@
 ---
-title: "air quality analysis"
+title: "AQI shiny dashboard README"
 author: "Spencer Zhang"
 date: "3/11/2022"
 output: html_document
@@ -24,6 +24,9 @@ library(readr)
 ```
 
 # Geography analysis
+
+The air quality data, specifically PM2.5 daily concentration, is from sensor data by [PurpleAir](https://www2.purpleair.com). The sensors are labeled as "outside" and "inside", indicating applicaiton of sensors for outdoor air quality and indoor air quality.
+In this analysis, we focus on San Mateo County. The data for Redwood City and San Mateo City is processed by the author. The data for other cities are kindly supported to this dashboard by my colleagues in Stanford CEE218Y, W22. The data for East Palo Alto and Foster City is processed by Daphne, Lena, and Catherine, and the Belmont data is processed by Awoe.
 ```{r pa-api-reading}
 pa_api <- "CAD01D42-A086-11EC-B9BF-42010A800003"
 
@@ -70,7 +73,9 @@ smc_sensors <-
   .[smc_boundary %>% st_transform(4326), ] #1079 sensors in SMC 
 ```
 
-Redwood City has 105 sensors. San Mateo City has 108 sensors.
+## AQI data processing for Redwood City and San Mateo City
+
+In total, Redwood City has 105 sensors and San Mateo City has 108 sensors. The sensors are disapportionaly distributed according to the choice of the purchased customers. In order to make the data representative for the City, we used voronoi technique to assign the area of the city to its closet sensors. The final PM2.5 concentration is a weighted average of the sensor data by its assigned adjacent area. The voronoi technique is applied seperately for indoor and outdoor sensors.
 ```{r rwc&smc-sensors}
 rwc_boundary <- places(state = "CA", cb = T) %>%
   filter(NAME == "Redwood City")
@@ -236,7 +241,7 @@ sm_pm25_voronoi_cbg <-
   st_as_sf()
 ```
 
-
+We processed the daily average PM2.5 concentration for the time period of February 2022 in all cities.
 ```{r rwc-data-download}
 time_stamp <- c(
   "2022-02-01%2000:08:00",
@@ -342,14 +347,15 @@ rwc_indoor_raw <- read_rds("rwc_indoor_raw.rds")
 rwc_outdoor_raw <- read_rds("rwc_outdoor_raw.rds")
 ```
 
-According to [PurpleAir's documentation](https://docs.google.com/document/d/15ijz94dXJ-YAZLi9iZ_RaBwrZ4KtYeCy08goGBwnbCU/edit#), there are two channels (A and B) in each sensor to maintain quality control. If both laser counters (channels) are in agreement, the data can be seen as excellent quality. If there are different readings from the two channels, there may be a fault with one or both. Therefore, we conduct quality control by inspecting the difference between channels for sensors in Redwood City and San Mateo City.
+According to [PurpleAir's documentation](https://docs.google.com/document/d/15ijz94dXJ-YAZLi9iZ_RaBwrZ4KtYeCy08goGBwnbCU/edit#), the data column labelled "CF=1" is calibrated for indoor application and "CF=ATM" is calibrated for outdoor application. Therefore, we used the former one for inside AQI/PM2.5 calculation and latter for outside, shown in the final dashboard map.
+ 
+For data quality control, there are two channels (A and B) in each sensor to maintain quality control. If both laser counters (channels) are in agreement, the data can be seen as excellent quality. If there are different readings from the two channels, there may be a fault with one or both. Therefore, we conduct quality control by inspecting the difference between channels for sensors in Redwood City and San Mateo City.
 There are two outside sensors in Redwood City with severe quality issues, ID = 
 The inside sensors in Redwood City are all of excellent data quality.
 
-For San Mateo City, most of the inside sensors only has data for Channel A, so we skip the difference comparison step and look at the distribution of observed data in Channel A alone. There are no anomoly in the observed data.
-For outside sensors in San Mateo City, the same applies for the missing data on Channel B. However the observed data in Channel A
+For San Mateo City, most of the inside sensors only has data for Channel A, so we skip the difference comparison step and look at the distribution of observed data in Channel A alone. There are no anomaly in the observed data.
+For outside sensors in San Mateo City, the same applies for the missing data on Channel B. However the observed data in Channel A.
  
-
 ```{r data-cleansing}
 #use this data frame as temp to run following code
 #repeat with rwc_in, rwc_out, sm_in, sm_out
@@ -415,7 +421,7 @@ fault_sensors <- rwc_out_fault %>% mutate(
 saveRDS(fault_sensors, "fault_sensors.rds")
 ```
 
-The four faulty sensors excluded from the following analysis is shown in Map X.
+The four faulty sensors excluded from the following analysis is shown in Map 1.
 ```{r faulty-sensor-info, eval = T}
 fault_sensors <- read_rds("fault_sensors.rds")
 knitr::kable(fault_sensors,
@@ -426,6 +432,7 @@ knitr::kable(fault_sensors,
 mapview(fault_sensors %>% st_as_sf(), zcol = "name", layer.name = "Faulty sensor")
 ```
 
+The voronoi technique, i.e. area weight for each sensor, is reapplied after excluding faulty sensors.
 ```{r adjust-voronoi-by-excluding-faulty-sensors}
 #remove 2 outside sensors in rwc
 fault_sensors$ID
@@ -457,7 +464,6 @@ sm_sensors_out_weighted_corrected <-
     area = st_area(.) %>% as.numeric()
   )
 ```
-
 
 ```{r calculate-weighted-daily-average}
 colSums(is.na(rwc_outdoor_weighted))
@@ -576,10 +582,10 @@ smc_boundaries <- places("CA", cb = T) %>%
   )
 ```
 
-
 # Population Analysis
 
-## Project voronoi to blocks/CBGs/parcels
+Indoor AQI is further coupled with census data to conduct population equity analysis. However remember in mind the representative indoor air quality data is calculated based on the closest sensor in the area. Indoor air quality varies significantly according to the ventilation of the house, cooking facilities, air purifiers, and etc. This may not serve as an accurate representation. The following analysis serves as a preliminary inspection.
+
 ```{r download-smc-cbgs}
 library(tigris)
 smc_cbgs <- block_groups("CA", county = "San Mateo County", cb = T)
@@ -718,7 +724,6 @@ smc_sensors_clean %>%
     values = ~AQI_Cat
   )
 ```
-
 
 ```{r sm-county-all-sensors-voronoi}
 smc_in_voronoi <-
@@ -867,7 +872,6 @@ blocks_pop <-
 ```
 
 ```{r pop-map}
-#TODO 
 smc_aqi_pop <- smc_in_voronoi_cbg %>%
   mutate(Location = "inside") %>%
   rbind(smc_out_voronoi_cbg %>% mutate(Location = "outside")) %>%

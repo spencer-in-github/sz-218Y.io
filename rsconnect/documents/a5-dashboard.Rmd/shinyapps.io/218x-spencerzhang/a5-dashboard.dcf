@@ -5,9 +5,9 @@ account: 218x-spencerzhang
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 5860615
-bundleId: 5688069
+bundleId: 5688253
 url: https://218x-spencerzhang.shinyapps.io/a5-dashboard/
-when: 1647370811.28789
-lastSyncTime: 1647370811.2879
+when: 1647373444.4657
+lastSyncTime: 1647373444.46571
 asMultiple: FALSE
 asStatic: FALSE

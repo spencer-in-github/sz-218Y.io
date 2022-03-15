@@ -307,6 +307,8 @@ saveRDS(fc_blocks, "flood/fc_blocks.rds")
 
 ```{r cropped-fc-blocks}
 fc_blocks <- read_rds("flood/fc_blocks.rds")
+
+names(fc_blocks)
 ```
 
 ```{r fc-blocks-map, fig.cap= "Figure 3. Block maps of Foster City"}

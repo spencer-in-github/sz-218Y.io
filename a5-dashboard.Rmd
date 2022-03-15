@@ -23,6 +23,8 @@ Geographic Analysis
 
 Inputs {.sidebar}
 -------------------------------------
+[Methodology and Code](https://spencer-in-github.github.io/sz-218Y.io/spencerzhang_A5)
+
 
 ```{r}
 checkboxGroupInput(
@@ -96,6 +98,11 @@ leafletOutput("map")
 observeEvent(input$location, {
   
   smc_boundaries <- read_rds("smc_boundaries.rds")
+  
+  smc_popup <- smc_boundaries %>%
+    st_centroid()
+  city_center <- smc_popup %>% filter(NAME %in% input$city)
+  
   smc_aqi_pop <- read_rds("smc_aqi_pop.rds") %>%
     filter(Location == input$location)
 
@@ -120,7 +127,7 @@ observeEvent(input$location, {
         data = smc_boundaries %>% st_transform(4326) %>%
           filter(NAME %in% input$city),
         fill = 0,
-        label = ~input$city
+        label = ~paste0(input$city, " boundary")
       )
   })
   
@@ -133,7 +140,11 @@ Population Analysis
 
 Inputs2 {.sidebar}
 -------------------------------------
+[Methodology and Further Analysis](https://spencer-in-github.github.io/sz-218Y.io/spencerzhang_A5)
+ 
 Indoor air quality has long been neglected in air quality analysis but it's fundamentally important with the increasing amount of time average Americans spend indoors. The indoor air quality can be significantly different from outdoor quality, depending on the ventilation, choice of cooking gear, and availability of air purifiers. 
+ 
+
  
 
 Row
@@ -197,7 +208,10 @@ AQI by race
 
 Doc {.sidebar}
 -------------------------------------
+[Methodology and Further Analysis](https://spencer-in-github.github.io/sz-218Y.io/spencerzhang_A5) 
+
 The indoor air quality exposed to different racial groups is different, shown to the right. Asian population faces a higher level of indoor air pollutants than White population.
+ 
 
 
 Column 
@@ -247,7 +261,11 @@ AQI by income
 
 Doc2 {.sidebar}
 -------------------------------------
+[Methodology and Further Analysis](https://spencer-in-github.github.io/sz-218Y.io/spencerzhang_A5)
+ 
 To the left of the figure, we can see clearly population with higher income tends to enjoy a better air quality. This may due to the availability of air purifiers, better cooking facilities, location of home, and etc.
+ 
+
 
 Column
 -----
