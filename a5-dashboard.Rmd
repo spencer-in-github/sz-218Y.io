@@ -1,9 +1,11 @@
 ---
-title: "Dashboard Demo"
+title: "Air Quality Analysis in San Mateo"
 runtime: shiny
 output: 
   flexdashboard::flex_dashboard:
     vertical_layout: fill
+    social: menu
+    source_code: embed
 ---
 
 ```{r global, include=FALSE}
@@ -13,107 +15,64 @@ library(leaflet)
 library(sf)
 library(plotly)
 
-
-
-pge_data_raw <- readRDS("pge_data_raw.rds") #has to be in your wrking dir; no personal pathways
-#published dashboard cant access your personal pathways anymore
-
-bay_zips <- readRDS("bay_zips.rds")
-
-pge_data <-
-  pge_data_raw %>% 
-  filter(
-    CUSTOMERCLASS %in% c(
-      "Elec- Commercial",
-      "Elec- Residential",
-      "Gas- Commercial",
-      "Gas- Residential"
-    )
-  ) %>% 
-  group_by(
-    MONTH, 
-    YEAR, 
-    CUSTOMERCLASS
-  ) %>% 
-  summarize(
-    TOTALKBTU = sum(TOTALKBTU, na.rm = T)
-  ) %>% 
-  mutate(
-    DATE = 
-      paste(
-        YEAR,
-        MONTH, 
-        "01",
-        sep="-"
-      ) %>% as.Date()
-  )
+smc_feb <- read_rds("smc_PM25_feb.rds")
 ```
+
+Geographic Analysis
+=======
 
 Inputs {.sidebar}
 -------------------------------------
 
 ```{r}
+checkboxGroupInput(
+  inputId = "city", 
+  label = "City:",
+  choices = c("Redwood City", "San Mateo City", "Foster City", "East Palo Alto", "Belmont"), 
+  selected = "Redwood City"
+)
+
 selectInput(
-  inputId = "year", 
-  label = "Year:",
-  choices = c(2017,2018,2019,2020), 
-  selected = 2020
+  inputId = "location", 
+  label = "Sensor Location:",
+  choices = c("inside", "outside"), 
+  selected = "outside"
 )
 ```
 
-Column
+Row
 -------------------------------------
 
-### Monthly consumption
+### Daily PM2.5 in February 2022 by City
 
 ```{r}
 plotlyOutput("plot")
 ```
 
 ```{r, context = "server"}
-observeEvent(input$year, {
+observeEvent(c(input$city, input$location), {
   
-  chart <- pge_data %>% 
+  chart <- smc_feb %>% 
     filter(
-      CUSTOMERCLASS %in% c(
-        "Elec- Residential"
-      ),
-      YEAR == input$year
+      city %in% input$city, Location == input$location
     ) %>% 
     ggplot(
       aes(
-        x = MONTH,
-        y = TOTALKBTU/1e9
+        x = date,
+        y = PM25
       )
     ) +
     geom_line(
       aes(
-        color = YEAR %>% factor()
-      )
-    ) +
-    scale_x_discrete(
-      limits = c(
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec"
+        color = city
       )
     ) +
     labs(
-      x = "",
-      y = "Total kBTUs (billions)",
-      title = paste0("Residential Energy Consumption in the Bay Area, ", input$year),
-      color = "Year"
+      x = "Date",
+      y = "Daily PM2.5 Concentration",
+      color = "City"
     ) + 
-    theme(legend.position = "none")
+    theme(legend.position = "topright")
   
   output$plot <- renderPlotly({
     chart %>% 
@@ -124,71 +83,226 @@ observeEvent(input$year, {
 })
 ```
 
-Column
+Row
 -------------------------------------
 
-### ZCTA consumption
+### Weekly AQI in mid-March 2022 by Census block group
 
 ```{r}
 leafletOutput("map")
 ```
 
 ```{r, context = "server"}
-observeEvent(input$year, {
+observeEvent(input$location, {
   
-  pge_res_elec <-
-    pge_data_raw %>% 
-    filter(
-      CUSTOMERCLASS == "Elec- Residential",
-      YEAR == input$year
-    ) %>% 
-    mutate(
-      ZIPCODE = ZIPCODE %>% as.character()
-    ) %>% 
-    group_by(ZIPCODE) %>% 
-    summarize(
-      TOTALKBTU = sum(TOTALKBTU, na.rm = T)
-    ) %>% 
-    right_join(
-      bay_zips %>% select(GEOID10),
-      by = c("ZIPCODE" = "GEOID10")
-    ) %>% 
-    st_as_sf() %>% 
-    st_transform(4326)
-  
-  res_pal <- colorNumeric(
-    palette = "Reds",
-    domain = 
-      pge_res_elec$TOTALKBTU
+  smc_boundaries <- read_rds("smc_boundaries.rds")
+  smc_aqi_pop <- read_rds("smc_aqi_pop.rds") %>%
+    filter(Location == input$location)
+
+  aqi_pal <- colorNumeric(
+    palette = "Purples",
+    domain = smc_aqi_pop$AQI
   )
   
   output$map <- renderLeaflet({
-    leaflet() %>% 
-      addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+    leaflet() %>%
+    addProviderTiles(provider = providers$CartoDB.Positron) %>%
+    addPolygons(data = smc_aqi_pop %>% st_transform(4326),
+              fillColor = ~aqi_pal(AQI),
+              color = "white",
+              opacity = 0.5,
+              fillOpacity = 0.7,
+              weight = 1,
+              label = ~paste0(
+                "AQI ", round(AQI), " (", input$location, ") in CBG", GEOID, " with ", pop, " population" )
+              ) %>%
       addPolygons(
-        data = pge_res_elec,
-        fillColor = ~res_pal(TOTALKBTU),
-        color = "white",
-        opacity = 0.5,
-        fillOpacity = 0.5,
-        weight = 1,
-        label = ~paste0(
-          round(TOTALKBTU), 
-          " kBTU total in ",
-          ZIPCODE
-        ),
-        highlightOptions = highlightOptions(
-          weight = 2,
-          opacity = 1
-        )
-      ) %>% 
-      addLegend(
-        data = pge_res_elec,
-        pal = res_pal,
-        values = ~TOTALKBTU,
-        title = paste0("Total Residential<br>Electricity (kBTU), ", input$year)
+        data = smc_boundaries %>% st_transform(4326) %>%
+          filter(NAME %in% input$city),
+        fill = 0,
+        label = ~input$city
       )
   })
   
 })
+```
+
+
+Population Analysis
+=======
+
+Inputs2 {.sidebar}
+-------------------------------------
+Indoor air quality has long been neglected in air quality analysis but it's fundamentally important with the increasing amount of time average Americans spend indoors. The indoor air quality can be significantly different from outdoor quality, depending on the ventilation, choice of cooking gear, and availability of air purifiers. 
+ 
+
+Row
+------
+
+### Population breakdown
+
+Below is the total population breakdown in San Mateo County by indoor AQI levels for the past week, March 7-13, 2022. In general, the indoor air quality is relatively good in this area. The indoor AQI data is based on installed PurpleAir monitors within households, and we assume the indoor AQI is the same across the same census block group.
+ 
+
+```{r}
+  #pop breakdown
+  smc_pop_plot <- read_rds("smc_pop_plot.rds")
+  smc_pop_plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = AQI_level,
+        y = pop),
+    stat = "identity"
+  ) + 
+  labs(
+    x = "AQI level",
+    y = "Population",
+    title = "Population exposure"
+  )
+```
+
+Column
+-----------
+
+### Exposure by tenure
+
+Below is the AQI level by household tenure in San Mateo County within the same time period. Surprisingly, we would observe the owners are more exposed to bad indoor air quality than renters. However this is not accurate since owners may be more likely to install AQI monitors than renters. The data shown here may not be fully representative of the total population in SMC. Data availability is significant obstacle for further indoor air quality analysis.
+
+
+```{r}
+  #tenure analysis
+  smc_tenure_plot <- read_rds("smc_tenure_plot.rds")
+
+    smc_tenure_plot %>%
+    ggplot() +
+    geom_bar(
+      aes(
+        x = AQI_level %>% factor(levels = rev(c("Very good", "Good", "Moderate", "Bad"))),
+        y = estimate,
+        fill = tenure
+      ),
+      stat = "identity",
+      position = "fill"
+    ) + 
+    labs(
+      x = "AQI level",
+      y = "Population",
+      title = "San Mateo County AQI level by tenure",
+      fill = "Household tenure"
+    ) + coord_flip()
+```
+
+AQI by race
+======
+
+Doc {.sidebar}
+-------------------------------------
+The indoor air quality exposed to different racial groups is different, shown to the right. Asian population faces a higher level of indoor air pollutants than White population.
+
+
+Column 
+----
+
+### Race
+
+```{r}
+plotlyOutput("race")
+```
+
+```{r , context = "server"}
+observeEvent(TRUE
+      #race analysis
+    ,{smc_race_plot <- read_rds("smc_race_plot.rds")
+
+      chart2 <- smc_race_plot %>% #having geometry for each CBGs
+      ggplot() +
+      geom_bar(
+        aes(
+          x = AQI_level %>% factor(levels = rev(c("Very good", "Good", "Moderate", "Bad"))),
+          y = estimate,
+          fill = race %>% factor(levels = rev(unique(smc_race_plot$race)))
+        ),
+        stat = "identity",
+        position = "fill"
+      ) + 
+      labs(
+        x = "AQI level",
+        y = "Population",
+        title = "San Mateo County AQI level by race",
+        fill = "Race"
+      ) + coord_flip()
+      
+      output$race <- renderPlotly({
+    chart2 %>% 
+      ggplotly() %>% 
+      config(displayModeBar = F)
+  })
+    }
+)
+```
+
+
+AQI by income
+====
+
+Doc2 {.sidebar}
+-------------------------------------
+To the left of the figure, we can see clearly population with higher income tends to enjoy a better air quality. This may due to the availability of air purifiers, better cooking facilities, location of home, and etc.
+
+Column
+-----
+### Income
+
+```{r}
+plotlyOutput("income")
+```
+
+```{r , context = "server"}
+observeEvent(TRUE
+      #race analysis
+    ,{smc_income_plot <- read_rds("smc_income_plot.rds")
+
+    income_levels <- c(
+      "Less than $10,000",
+      "$10,000 to $14,999",
+      "$15,000 to $19,999",
+      "$20,000 to $24,999",
+      "$25,000 to $29,999",
+      "$30,000 to $34,999",
+      "$35,000 to $39,999",
+      "$40,000 to $44,999",
+      "$45,000 to $49,999",
+      "$50,000 to $59,999",
+      "$60,000 to $74,999",
+      "$75,000 to $99,999",
+      "$100,000 to $124,999",
+      "$125,000 to $149,999",
+      "$150,000 to $199,999",
+      "$200,000 or more"
+    )
+    
+      income <- smc_income_plot %>% #having geometry for each CBGs
+      ggplot() +
+      geom_bar(
+        aes(
+          x = AQI_level %>% factor(levels = rev(c("Very good", "Good", "Moderate", "Bad"))),
+          y = estimate,
+          fill = income %>% factor(levels = income_levels)),
+        stat = "identity",
+        position = "fill"
+      ) + 
+      labs(
+        x = "AQI level",
+        y = "Population",
+        title = "San Mateo County AQI level by income",
+        fill = "Income level"
+      ) + coord_flip()
+      
+      output$income <- renderPlotly({
+    income %>% 
+      ggplotly() %>% 
+      config(displayModeBar = F)
+  })
+    }
+)
 ```

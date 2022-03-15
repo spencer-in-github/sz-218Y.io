@@ -1,0 +1,13 @@
+name: a5-dashboard
+title: a5-dashboard
+username:
+account: 218x-spencerzhang
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5860615
+bundleId: 5688069
+url: https://218x-spencerzhang.shinyapps.io/a5-dashboard/
+when: 1647370811.28789
+lastSyncTime: 1647370811.2879
+asMultiple: FALSE
+asStatic: FALSE

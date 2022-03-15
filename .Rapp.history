@@ -1,1 +1,3 @@
 load("/Users/spencerzhang/GitHub/sz-218Y.io/origin_cbgs_pop_94108.rds")
+load("/Users/spencerzhang/GitHub/sz-218Y.io/rwc_outdoor_weighted.rds")
+load("/Users/spencerzhang/GitHub/sz-218Y.io/sm_indoor_weighted.rds")

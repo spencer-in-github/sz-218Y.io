@@ -1,0 +1,1228 @@
+---
+title: "air quality analysis"
+author: "Spencer Zhang"
+date: "3/11/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F, eval = F)
+```
+
+```{r library, eval = T}
+library(jsonlite)
+library(tidyverse)
+library(sf)
+library(tigris)
+library(censusapi)
+library(mapview)
+library(leaflet)
+library(mapboxapi)
+library(readr)
+```
+
+# Geography analysis
+```{r pa-api-reading}
+pa_api <- "CAD01D42-A086-11EC-B9BF-42010A800003"
+
+json <- fromJSON(paste0(
+    "https://api.purpleair.com/v1/sensors?api_key=",
+    pa_api,
+    "&fields=name,location_type,latitude,longitude,pm2.5_1week,temperature,humidity,primary_id_a,primary_key_a,secondary_id_a,secondary_key_a,primary_id_b,primary_key_b,secondary_id_b,secondary_key_b"
+  ))
+
+all_sensors <- json %>% 
+  .$data %>% 
+  as.data.frame() %>% 
+  set_names(json$fields) %>% 
+  filter(
+    !is.na(longitude),
+    !is.na(latitude)
+  ) %>% 
+  st_as_sf(coords = c("longitude","latitude"), crs = 4326) %>% 
+  mutate(location_type = ifelse(
+    location_type == 0,
+    "outside",
+    "inside"
+  ))
+
+#test
+view(head(all_sensors))
+```
+
+```{r test-read-fc-data-from-lena}
+#read FC daily average PM2.5 data in Feb 2022
+fc <- read_rds("fc_sensor_data.rds")
+
+plot(fc$PM25)
+```
+
+```{r smc-boundary}
+smc_boundary <- counties(state = "CA", cb= T) %>%
+  filter(NAME == "San Mateo")
+```
+
+```{r sensors-in-smc}
+smc_sensors <-
+  all_sensors %>% 
+  .[smc_boundary %>% st_transform(4326), ] #1079 sensors in SMC 
+```
+
+Redwood City has 105 sensors. San Mateo City has 108 sensors.
+```{r rwc&smc-sensors}
+rwc_boundary <- places(state = "CA", cb = T) %>%
+  filter(NAME == "Redwood City")
+
+rwc_sensors <-
+  all_sensors %>% 
+  .[rwc_boundary%>% st_transform(4326), ] 
+
+sm_boundary <- places(state = "CA", cb = T) %>%
+  filter(NAME == "San Mateo")
+
+sm_sensors <-
+  all_sensors %>% 
+  .[sm_boundary%>% st_transform(4326), ]
+
+#test view
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(
+    data = rwc_boundary
+  )
+```
+
+```{r tester}
+start <- "2022-02-01%2000:08:00"
+end <- "2022-02-10%2000:08:00"
+
+row <- 1
+print(paste0(row,". ",rwc_sensors[row,]$sensor_index))
+
+  a1 <- read_csv(paste0(
+    "https://api.thingspeak.com/channels/",
+    rwc_sensors[row,]$primary_id_a,
+    "/feeds.csv?api_key=",
+    rwc_sensors[row,]$primary_key_a,
+    "&average=1440&round=3&start=",start,
+    "&end=", end, 
+    "&timezone=America/Los_Angeles"
+  ), show_col_types = F) %>% 
+    set_names(c("created_at","PM1.0_CF_1_ug/m3_A","PM2.5_CF_1_ug/m3_A","PM10.0_CF_1_ug/m3_A","Uptime_Minutes_A","RSSI_dbm_A","Temperature_F_A","Humidity_%_A","PM2.5_CF_ATM_ug/m3_A"))
+  
+    a1_ave <- read_csv(paste0(
+    "https://api.thingspeak.com/channels/",
+    rwc_sensors[row,]$primary_id_a,
+    "/feeds.csv?api_key=",
+    rwc_sensors[row,]$primary_key_a,
+    "&average=1440&round=3&start=",start,
+    "&end=", end, 
+    "&timezone=America/Los_Angeles&average=daily"
+  ), show_col_types = F) %>% 
+    set_names(c("created_at","PM1.0_CF_1_ug/m3_A","PM2.5_CF_1_ug/m3_A","PM10.0_CF_1_ug/m3_A","Uptime_Minutes_A","RSSI_dbm_A","Temperature_F_A","Humidity_%_A","PM2.5_CF_ATM_ug/m3_A"))
+```
+
+```{r rwc-sensor-voronoi}
+rwc_pm25_out_voronoi <-
+  rwc_sensors %>%
+  filter(location_type == "outside") %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(rwc_boundary %>% st_transform(4326))) %>% 
+  st_join(rwc_sensors %>% filter(location_type == "outside"))
+
+rwc_pm25_in_voronoi <-
+  rwc_sensors %>%
+  filter(location_type == "inside") %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(rwc_boundary %>% st_transform(4326))) %>% 
+  st_join(rwc_sensors %>% filter(location_type == "inside"))
+
+ggplot(rwc_pm25_in_voronoi) + geom_sf()  
+```
+
+```{r sm-sensor-voronoi}
+sm_pm25_out_voronoi <-
+  sm_sensors %>%
+  filter(location_type == "outside") %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(sm_boundary %>% st_transform(4326))) %>% 
+  st_join(sm_sensors %>% filter(location_type == "outside"))
+
+sm_pm25_in_voronoi <-
+  sm_sensors %>%
+  filter(location_type == "inside") %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(sm_boundary %>% st_transform(4326))) %>% 
+  st_join(sm_sensors %>% filter(location_type == "inside"))
+
+ggplot(sm_pm25_out_voronoi) + geom_sf()
+ggplot(sm_pm25_in_voronoi) + geom_sf()
+```
+
+```{r sensor-weighted}
+#County block groups
+smc_cbgs <- block_groups("CA","San Mateo County", cb = T, progress_bar = F) %>% 
+  st_transform(4326)
+
+rwc_pm25_voronoi_cbg <-
+  rwc_pm25_voronoi %>% 
+  st_intersection(smc_cbgs) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>% 
+  group_by(GEOID) %>% 
+  summarize(
+    PM25 = weighted.mean(PM25, area, na.rm = T)
+  ) %>% 
+  left_join(rwc_cbgs %>% dplyr::select(GEOID)) %>% 
+  st_as_sf()
+
+rwc_sensors_out_weighted <-
+  rwc_pm25_out_voronoi %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) 
+
+rwc_sensors_in_weighted <-
+  rwc_pm25_in_voronoi %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) 
+
+sm_sensors_out_weighted <-
+  sm_pm25_out_voronoi %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) 
+
+sm_sensors_in_weighted <-
+  sm_pm25_in_voronoi %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) 
+
+sm_cbgs <- block_groups("CA","San Mateo City", cb = T, progress_bar = F) %>% 
+  st_transform(4326)
+
+sm_pm25_voronoi_cbg <-
+  sm_pm25_voronoi %>% 
+  st_intersection(sm_cbgs) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>% 
+  group_by(GEOID) %>% 
+  summarize(
+    PM25 = weighted.mean(PM25, area, na.rm = T)
+  ) %>% 
+  left_join(sm_cbgs %>% dplyr::select(GEOID)) %>% 
+  st_as_sf()
+```
+
+
+```{r rwc-data-download}
+time_stamp <- c(
+  "2022-02-01%2000:08:00",
+  "2022-02-11%2000:08:00",
+  "2022-02-21%2000:08:00",
+  "2022-02-28%2000:08:00"
+)
+
+#change this and run temp code repeatedly without modifying the loop code
+sensors_weighted <- rwc_sensors_in_weighted
+
+temp <- 
+  1:3 %>%
+  map_dfr(function(x){
+    #loop through time periods
+    start <- time_stamp[x]
+    end <- time_stamp[x+1]
+    print(paste0("now running time from ", start, " to ", end))
+    
+    data <-
+      1:nrow(sensors_weighted) %>% 
+      map_dfr(function(row){
+      
+      print(paste0(row,". ",sensors_weighted[row,]$sensor_index))
+      
+      a1 <- read_csv(paste0(
+        "https://api.thingspeak.com/channels/",
+        sensors_weighted[row,]$primary_id_a,
+        "/feeds.csv?api_key=",
+        sensors_weighted[row,]$primary_key_a,
+        "&average=1440&round=3&start=",start,
+        "&end=", end, 
+        "&timezone=America/Los_Angeles"
+      ), show_col_types = F) %>% 
+        set_names(c("created_at","PM1.0_CF_1_ug/m3_A","PM2.5_CF_1_ug/m3_A","PM10.0_CF_1_ug/m3_A","Uptime_Minutes_A","RSSI_dbm_A","Temperature_F_A","Humidity_%_A","PM2.5_CF_ATM_ug/m3_A"))
+          
+      a2 <- read_csv(paste0(
+        "https://api.thingspeak.com/channels/",
+        sensors_weighted[row,]$secondary_id_a,
+        "/feeds.csv?api_key=",
+        sensors_weighted[row,]$secondary_key_a,
+        "&average=1440&round=3&start=",start,
+        "&end=", end, 
+        "&timezone=America/Los_Angeles"
+      ), show_col_types = F) %>% 
+        set_names(c("created_at","0.3um/dl_A","0.5um/dl_A","1.0um/dl_A","2.5um/dl_A","5.0um/dl_A","10.0um/dl_A","PM1.0_CF_ATM_ug/m3_A","PM10_CF_ATM_ug/m3_A"))
+        
+      b1 <- read_csv(paste0(
+        "https://api.thingspeak.com/channels/",
+        sensors_weighted[row,]$primary_id_b,
+        "/feeds.csv?api_key=",
+        sensors_weighted[row,]$primary_key_b,
+        "&average=1440&round=3&start=",start,
+        "&end=", end, 
+        "&timezone=America/Los_Angeles"
+      ), show_col_types = F) %>% 
+        set_names(c("created_at","PM1.0_CF_1_ug/m3_B","PM2.5_CF_1_ug/m3_B","PM10.0_CF_1_ug/m3_B","HEAP_B","ADC0_voltage_B","Atmos_Pres_B","Not_Used_B","PM2.5_CF_ATM_ug/m3_B"))
+      
+      b2 <- read_csv(paste0(
+        "https://api.thingspeak.com/channels/",
+        sensors_weighted[row,]$secondary_id_b,
+        "/feeds.csv?api_key=",
+        sensors_weighted[row,]$secondary_key_b,
+        "&average=1440&round=3&start=",start,
+        "&end=", end, 
+        "&timezone=America/Los_Angeles"
+      ), show_col_types = F) %>% 
+        set_names(c("created_at","0.3um/dl_B","0.5um/dl_B","1.0um/dl_B","2.5um/dl_B","5.0um/dl_B","10.0um/dl_B","PM1.0_CF_ATM_ug/m3_B","PM10_CF_ATM_ug/m3_B"))
+      
+      combined <- a1 %>% 
+        left_join(a2, by = "created_at") %>% 
+        left_join(b1, by = "created_at") %>% 
+        left_join(b2, by = "created_at") %>% 
+        transmute(
+          date = as.Date(created_at),
+          ID = as.numeric(sensors_weighted[row,]$sensor_index),
+          Location = sensors_weighted[row,]$location_type,
+          PM25 = 0.524*as.numeric(`PM2.5_CF_1_ug/m3_A`) - 0.0852*as.numeric(`Humidity_%_A`) + 5.72,
+          PM25_CF1_A = as.numeric(`PM2.5_CF_1_ug/m3_A`),
+          PM25_CF1_B = as.numeric(`PM2.5_CF_1_ug/m3_B`),
+          PM25_ATM_A = as.numeric(`PM2.5_CF_ATM_ug/m3_A`),
+          PM25_ATM_B = as.numeric(`PM2.5_CF_ATM_ug/m3_B`),
+          Humidity = as.numeric(`Humidity_%_A`)
+        ) 
+    })
+    
+    saveRDS(data, paste0("rwc_indoors_raw", x, ".rds"))
+    return(data)
+  }
+  )
+
+view(head(temp))
+
+saveRDS(temp, "rwc_indoor_raw.rds")
+
+```
+
+```{r read-raw-data}
+
+sm_outdoor_raw <- read_rds("sm_outdoor_raw.rds")
+sm_indoor_raw <- read_rds("sm_indoor_raw.rds")
+rwc_indoor_raw <- read_rds("rwc_indoor_raw.rds")
+rwc_outdoor_raw <- read_rds("rwc_outdoor_raw.rds")
+```
+
+According to [PurpleAir's documentation](https://docs.google.com/document/d/15ijz94dXJ-YAZLi9iZ_RaBwrZ4KtYeCy08goGBwnbCU/edit#), there are two channels (A and B) in each sensor to maintain quality control. If both laser counters (channels) are in agreement, the data can be seen as excellent quality. If there are different readings from the two channels, there may be a fault with one or both. Therefore, we conduct quality control by inspecting the difference between channels for sensors in Redwood City and San Mateo City.
+There are two outside sensors in Redwood City with severe quality issues, ID = 
+The inside sensors in Redwood City are all of excellent data quality.
+
+For San Mateo City, most of the inside sensors only has data for Channel A, so we skip the difference comparison step and look at the distribution of observed data in Channel A alone. There are no anomoly in the observed data.
+For outside sensors in San Mateo City, the same applies for the missing data on Channel B. However the observed data in Channel A
+ 
+
+```{r data-cleansing}
+#use this data frame as temp to run following code
+#repeat with rwc_in, rwc_out, sm_in, sm_out
+raw_data <- sm_outdoor_raw
+
+names(raw_data)
+plot(raw_data$PM25_CF1_A)
+plot(raw_data$PM25_ATM_A)
+plot(raw_data$PM25_CF1_B) #>4500
+plot(raw_data$PM25_ATM_B) #>3000
+
+
+test <- raw_data %>%
+  mutate(
+    cf1dif = PM25_CF1_A - PM25_CF1_B,
+    amtdif = PM25_ATM_A - PM25_ATM_B,
+    PM_CF1 = 0.524*(PM25_CF1_A + PM25_CF1_B)/2 - 0.0852*Humidity + 5.72,
+    PM_ATM =  0.524*(PM25_ATM_A + PM25_ATM_B)/2 - 0.0852*Humidity + 5.72
+  )
+
+sum(is.na(test$PM_CF1))
+sum(!is.na(test$PM_CF1))
+
+plot(test$cf1dif) 
+#RWC OUT: 6 cluster of data difference is way high (>4000)
+#RWC IN: no big different
+#SM IN: one cluster < -15
+plot(test$amtdif) 
+#RWC OUT: 6 cluster of data is way high (>3000)
+#RWC IN: no big different
+names(test)
+
+sm_out_fault <- raw_data %>%
+  filter(PM25_CF1_B > 4500 | PM25_ATM_B > 3000) %>%
+  group_by(ID) %>%
+  summarise(count=n(),
+            PM25_CF1_dif = mean(PM25_CF1_A - PM25_CF1_B),
+            PM25_ATM_dif = mean(PM25_ATM_A - PM25_ATM_B)
+    ) %>%
+  mutate(ID = as.character(ID)) %>%
+  left_join(sm_sensors %>% select(
+    ID = sensor_index, name
+  ))
+
+rwc_out_fault <- test %>%
+  filter(cf1dif > 4000 | cf1dif < -4000 | amtdif > 3000 | amtdif < -3000) %>%
+  group_by(ID) %>%
+  summarise(count = n(), PM25_CF1_dif = mean(cf1dif), PM25_ATM_dif = mean(amtdif)) %>%
+  mutate(ID = as.character(ID)) %>%
+  left_join(rwc_sensors %>% select(
+    ID = sensor_index, name
+  ))
+
+fault_sensors <- rwc_out_fault %>% mutate(
+  City = "Redwood City",
+  Location = "outside"
+) %>%
+  rbind(sm_out_fault %>% mutate(
+  City = "San Mateo City",
+  Location = "outside"
+))
+
+saveRDS(fault_sensors, "fault_sensors.rds")
+```
+
+The four faulty sensors excluded from the following analysis is shown in Map X.
+```{r faulty-sensor-info, eval = T}
+fault_sensors <- read_rds("fault_sensors.rds")
+knitr::kable(fault_sensors,
+             caption = "The information of faulty sensors in RWC and SMC (count indicates the number of observations shown high variances between Channel A and B)")
+```
+
+```{r faulty-sensor-map, eval = T, fig.cap="Figure 1. The locations of faulty sensors in Redwood City and San Mateo City."}
+mapview(fault_sensors %>% st_as_sf(), zcol = "name", layer.name = "Faulty sensor")
+```
+
+```{r adjust-voronoi-by-excluding-faulty-sensors}
+#remove 2 outside sensors in rwc
+fault_sensors$ID
+
+rwc_sensors_out_weighted_corrected <-
+  rwc_sensors %>%
+  filter(location_type == "outside" & !sensor_index %in% fault_sensors$ID) %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(rwc_boundary %>% st_transform(4326))) %>% 
+  st_join(rwc_sensors %>% filter(location_type == "outside"& !sensor_index %in% fault_sensors$ID)) %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  )
+
+#remove 2 outside sensors in smc
+sm_sensors_out_weighted_corrected <-
+  sm_sensors %>%
+  filter(location_type == "outside" & !sensor_index %in% fault_sensors$ID) %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(sm_boundary %>% st_transform(4326))) %>% 
+  st_join(sm_sensors %>% filter(location_type == "outside"& !sensor_index %in% fault_sensors$ID)) %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  )
+```
+
+
+```{r calculate-weighted-daily-average}
+colSums(is.na(rwc_outdoor_weighted))
+
+rwc_outdoor_weighted <- rwc_sensors_out_weighted_corrected %>%
+      st_drop_geometry() %>%
+      select(
+        sensor_index, area
+      ) %>%
+  left_join(
+    rwc_outdoor_raw %>%
+      mutate(sensor_index = as.character(ID))
+  ) %>%
+  group_by(date, ID) %>%
+  summarize_all(first) %>% #remove duplicate observations of the same day by looping start&end defination 
+  mutate(
+    PM25 = 0.524*(PM25_ATM_A + PM25_ATM_B)/2 - 0.0852*Humidity + 5.72 #use CF = ATM for outside data
+  ) %>%
+  group_by(date, Location) %>%
+  summarize(PM25 = weighted.mean(PM25, area, na.rm = T)) %>%
+  mutate(city = "Redwood City")
+
+sm_outdoor_weighted <- sm_sensors_out_weighted_corrected %>%
+      st_drop_geometry() %>%
+      select(
+        sensor_index, area
+      ) %>%
+  left_join(
+    sm_outdoor_raw %>%
+      mutate(sensor_index = as.character(ID))
+  ) %>%
+  group_by(date, ID) %>%
+  summarize_all(first) %>% #remove duplicate observations of the same day by looping start&end defination 
+  mutate(
+    PM25 = 0.524*(PM25_ATM_A + PM25_ATM_B)/2 - 0.0852*Humidity + 5.72 #use CF = ATM for outside data
+  ) %>%
+  group_by(date, Location) %>%
+  summarize(PM25 = weighted.mean(PM25, area, na.rm = T)) %>%
+  mutate(city = "San Mateo City")
+
+rwc_indoor_weighted <- rwc_indoor_raw %>%
+  mutate(sensor_index = as.character(ID)) %>%
+  left_join(
+    rwc_sensors_in_weighted %>%
+      st_drop_geometry() %>%
+      select(
+        sensor_index, area
+      )) %>%
+  group_by(date, ID) %>%
+  summarize_all(first) %>%
+  group_by(date, Location) %>%
+  summarize(PM25 = weighted.mean(PM25, area, na.rm = T)) %>%
+  mutate(city = "Redwood City")
+
+sm_indoor_weighted <- sm_indoor_raw %>%
+  mutate(sensor_index = as.character(ID)) %>%
+  left_join(
+    sm_sensors_in_weighted %>%
+      st_drop_geometry() %>%
+      select(
+        sensor_index, area
+      )) %>%
+    group_by(date, ID) %>%
+  summarize_all(first) %>%
+  group_by(date, Location) %>%
+  summarize(PM25 = weighted.mean(PM25, area, na.rm = T)) %>%
+  mutate(city = "San Mateo City")
+
+saveRDS(rwc_outdoor_weighted, "rwc_outdoor_weighted.rds")
+saveRDS(rwc_indoor_weighted, "rwc_indoor_weighted.rds")
+saveRDS(sm_outdoor_weighted, "sm_outdoor_weighted.rds")
+saveRDS(sm_indoor_weighted, "sm_indoor_weighted.rds")
+```
+
+```{r}
+rwc_outdoor_weighted <- read_rds("rwc_outdoor_weighted.rds")
+view(rwc_outdoor_weighted)
+sm_outdoor_weighted <- read_rds("sm_outdoor_weighted.rds")
+view(sm_outdoor_weighted)
+
+epa_outdoor <- read_rds("epa_sensor_data.rds")
+fc_outdoor <- read_rds("fc_sensor_data.rds")
+smc_feb <- rwc_outdoor_weighted %>%
+  rbind(
+    sm_outdoor_weighted
+  ) %>% rbind(epa_outdoor) %>% rbind(fc_outdoor) %>% rbind(rwc_indoor_weighted) %>% rbind(sm_indoor_weighted)
+
+
+saveRDS(smc_feb, "smc_PM25_feb.rds")
+```
+
+```{r load-belmont-data-from-Awoe}
+belmont <- read_rds("feb_daily_belmont_data.rds")
+
+names(belmont)
+
+smc_feb <- smc_feb %>%
+  rbind(belmont)
+
+saveRDS(smc_feb, "smc_PM25_feb.rds")
+```
+
+```{r create-popup-markers-for-mapview}
+rwc_boundary %>%
+  st_centroid()
+
+smc_boundary %>%
+  st_centroid()
+
+saveRDS(smc_boundaries, "smc_boundaries.rds")
+
+smc_boundaries <- places("CA", cb = T) %>%
+  filter(NAME %in% c("Foster City", "Redwood City", "East Palo Alto", "Belmont", "San Mateo")) %>%
+  mutate(
+    NAME = if_else(NAME == "San Mateo", "San Mateo City", NAME)
+  )
+```
+
+
+# Population Analysis
+
+## Project voronoi to blocks/CBGs/parcels
+```{r download-smc-cbgs}
+library(tigris)
+smc_cbgs <- block_groups("CA", county = "San Mateo County", cb = T)
+
+saveRDS(smc_cbgs, "smc_cbgs.rds")
+```
+
+```{r read-smc-cbgs, eval=TRUE}
+smc_cbgs <- read_rds("smc_cbgs.rds")
+```
+
+```{r}
+library(leaflet)
+leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = rwc_cbgs %>% st_transform(4326),
+    fill = F
+  ) %>%
+  addPolygons(data = rwc_boundary, color = "Red")
+```
+
+```{r}
+rwc_cbgs <- smc_cbgs %>%
+  .[rwc_boundary, ]
+
+sm_cbgs <- smc_cbgs %>%
+  .[sm_boundary, ]
+```
+
+```{r rwc-cbg-pm25-1week}
+rwc_pm25_in_voronoi_cbg <-
+  rwc_pm25_in_voronoi %>% 
+  st_intersection(rwc_cbgs %>% st_transform(4326)) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>%
+  mutate(pm2.5_1week = as.numeric(pm2.5_1week)) %>%
+  group_by(GEOID) %>% 
+  summarize(
+    PM25 = weighted.mean(pm2.5_1week, area, na.rm = T)
+  ) %>% 
+  left_join(rwc_cbgs %>% dplyr::select(GEOID)) %>% 
+  filter(PM25 != "NaN") %>%
+  st_as_sf()
+
+
+mapview(rwc_pm25_in_voronoi_cbg, zcol = "PM25")
+mapview(rwc_boundary)
+```
+
+```{r sm-cbg-pm25-1week}
+sm_pm25_in_voronoi_cbg <-
+  sm_pm25_in_voronoi %>% 
+  st_intersection(sm_cbgs %>% st_transform(4326)) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>%
+  mutate(pm2.5_1week = as.numeric(pm2.5_1week)) %>%
+  group_by(GEOID) %>% 
+  summarize(
+    PM25 = weighted.mean(pm2.5_1week, area, na.rm = T)
+  ) %>% 
+  left_join(sm_cbgs %>% dplyr::select(GEOID)) %>% 
+  filter(PM25 != "NaN") %>%
+  st_as_sf()
+
+
+mapview(sm_pm25_in_voronoi_cbg, zcol = "PM25")
+mapview(sm_boundary)
+```
+
+```{r}
+saveRDS(rwc_pm25_in_voronoi_cbg, "rwc_pm25_in_voronoi_cbg.rds")
+saveRDS(sm_pm25_in_voronoi_cbg, "sm_pm25_in_voronoi_cbg.rds")
+```
+
+```{r}
+smc_sensors_clean <- smc_sensors %>% 
+  filter(
+    !is.na(pm2.5_1week),
+    !is.na(humidity)
+  ) %>% 
+  mutate(
+    PM25 = 0.524*as.numeric(pm2.5_1week) - 0.0852*as.numeric(humidity) + 5.72,
+    AQI = case_when(
+      PM25 <= 12 ~ 
+        paste(round(50/12*PM25), "Good"),
+      PM25 <= 35.4 ~ 
+        paste(round((100-51)/(35.4-12)*(PM25 - 12) + 51), "Moderate"),
+      PM25 <= 55.4 ~
+        paste(round((150-101)/(55.4-35.4)*(PM25 - 35.4) + 101), "Moderately Unhealthy"),
+      PM25 <= 150.4 ~
+        paste(round((200-151)/(150.4-55.4)*(PM25 - 55.4) + 151), "Unhealthy"),
+      PM25 <= 250.4 ~
+        paste(round((300-201)/(250.4-150.4)*(PM25 - 150.4) + 201), "Very Unhealthy"),
+      TRUE ~ 
+        paste(round((500-301)/(500.4-250.5)*(PM25 - 250.5) + 301), "Hazardous")
+    )
+  ) %>% 
+  separate(
+    AQI,
+    into = c("AQI","AQI_Cat"),
+    sep = " ",
+    extra = "merge"
+  ) %>% 
+  mutate(
+    AQI = as.numeric(AQI),
+    AQI_Cat = AQI_Cat %>% factor(levels = c("Good", "Moderate","Moderately Unhealthy","Unhealthy","Very Unhealthy","Hazardous"))
+  )
+```
+
+```{r}
+aqi_pal <- colorFactor(
+  palette = "RdYlGn",
+  reverse = T,
+  domain = smc_sensors_clean$AQI_Cat
+)
+
+smc_sensors_clean %>% 
+  filter(location_type == "outside") %>% 
+  leaflet() %>% 
+  addProviderTiles(provider = providers$CartoDB.Positron) %>% 
+  addCircleMarkers(
+    color = ~aqi_pal(AQI_Cat),
+    label = ~AQI_Cat,
+    radius = 5,
+    opacity = 0.75
+  ) %>% 
+  addLegend(
+    pal = aqi_pal,
+    values = ~AQI_Cat
+  )
+```
+
+
+```{r sm-county-all-sensors-voronoi}
+smc_in_voronoi <-
+  smc_sensors_clean %>%
+  filter(location_type == "inside") %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(smc_boundary %>% st_transform(4326))) %>% 
+  st_join(smc_sensors_clean %>% filter(location_type == "inside"))
+
+smc_out_voronoi <-
+  smc_sensors_clean %>%
+  filter(location_type == "outside") %>% 
+  st_union() %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  st_intersection(.,st_union(smc_boundary %>% st_transform(4326))) %>% 
+  st_join(smc_sensors_clean %>% filter(location_type == "outside"))
+
+mapview(smc_in_voronoi, zcol = "AQI")
+mapview(smc_out_voronoi, zol= "AQI")
+
+smc_in_voronoi_cbg <-
+  smc_in_voronoi %>% 
+  st_intersection(smc_cbgs %>% st_transform(4326)) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>%
+  mutate(pm2.5_1week = as.numeric(pm2.5_1week)) %>%
+  group_by(GEOID) %>% 
+  summarize(
+    AQI = weighted.mean(AQI, area, na.rm = T)
+  ) %>% 
+  left_join(smc_cbgs %>% dplyr::select(GEOID)) %>% 
+  filter(AQI != "NaN") %>%
+  st_as_sf()
+
+smc_out_voronoi_cbg <-
+  smc_out_voronoi %>% 
+  st_intersection(smc_cbgs %>% st_transform(4326)) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>%
+  mutate(pm2.5_1week = as.numeric(pm2.5_1week)) %>%
+  group_by(GEOID) %>% 
+  summarize(
+    AQI = weighted.mean(AQI, area, na.rm = T)
+  ) %>% 
+  left_join(smc_cbgs %>% dplyr::select(GEOID)) %>% 
+  filter(AQI != "NaN") %>%
+  st_as_sf()
+
+mapview(smc_in_voronoi_cbg, zcol = "AQI")
+mapview(smc_out_voronoi_cbg, zcol = "AQI")
+
+saveRDS(smc_in_voronoi_cbg, "smc_in_voronoi_cbg_AQI.rds")
+saveRDS(smc_out_voronoi_cbg, "smc_out_voronoi_cbg_AQI.rds")
+```
+
+```{r sm-county-voronoi-cbgs&blocks}
+smc_in_voronoi_cbg <-
+  smc_in_voronoi %>% 
+  st_intersection(smc_cbgs %>% st_transform(4326)) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>%
+  mutate(pm2.5_1week = as.numeric(pm2.5_1week)) %>%
+  group_by(GEOID) %>% 
+  summarize(
+    PM25 = weighted.mean(pm2.5_1week, area, na.rm = T)
+  ) %>% 
+  left_join(smc_cbgs %>% dplyr::select(GEOID)) %>% 
+  filter(PM25 != "NaN") %>%
+  st_as_sf()
+
+saveRDS(smc_in_voronoi_cbg, "smc_in_voronoi_cbg_1week.rds")
+
+smc_blocks <- blocks(state = "06", county = "081")
+
+smc_in_voronoi_blocks <-
+  smc_in_voronoi %>% 
+  st_intersection(smc_blocks %>% st_transform(4326)) %>% 
+  st_make_valid() %>% 
+  mutate(
+    area = st_area(.) %>% as.numeric()
+  ) %>% 
+  st_drop_geometry() %>%
+  mutate(pm2.5_1week = as.numeric(pm2.5_1week)) %>%
+  group_by(GEOID) %>% 
+  summarize(
+    PM25 = weighted.mean(pm2.5_1week, area, na.rm = T)
+  ) %>% 
+  left_join(smc_blocks %>% dplyr::select(GEOID)) %>% 
+  filter(PM25 != "NaN") %>%
+  st_as_sf()
+
+saveRDS(smc_in_voronoi_blocks, "smc_in_voronoi_blocks_1week.rds")
+```
+
+```{r sm-county-1week-inside-map, eval = T}
+smc_in_voronoi_cbg <- read_rds("smc_in_voronoi_cbg_1week.rds")
+
+mapview(smc_in_voronoi_cbg, zcol = "PM25")
+```
+
+```{r census-metadata}
+library(tidyverse)
+library(censusapi)
+
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+acs_vars_2019_5yr <- read_rds("acs_vars_2019_5yr.rds")
+```
+
+```{r}
+names(smc_in_voronoi_cbg)
+```
+
+```{r}
+names(smc_cbgs)
+
+blocks_pop <-
+  getCensus(
+    name = "dec/pl",
+    vintage = 2020,
+    region = "block:*", 
+    regionin = "state:06+county:081",
+    vars = "P1_001N"
+  ) %>% 
+  transmute(
+    GEOID20 = paste0(state,county,tract,block),
+    pop = P1_001N
+  ) %>%
+  mutate(GEOID = substr(GEOID20, 1, 12)) %>%
+  group_by(GEOID) %>%
+  summarize(pop =sum(pop))
+```
+
+```{r pop-map}
+#TODO 
+smc_aqi_pop <- smc_in_voronoi_cbg %>%
+  mutate(Location = "inside") %>%
+  rbind(smc_out_voronoi_cbg %>% mutate(Location = "outside")) %>%
+  mutate(
+    AQI_level = case_when(
+      AQI > 50 ~ "Bad", 
+      AQI <= 50 & AQI > 30 ~ "Moderate",
+      AQI <= 30 & AQI > 20 ~ "Good",
+      AQI <= 20 ~ "Very good"
+    ) %>% factor(levels = c("Bad", "Moderate", "Good", "Very good"))
+  ) %>%
+  left_join(
+    blocks_pop
+  ) %>% mutate(
+    pop = if_else(is.na(pop), 0, pop)
+  )
+  
+
+saveRDS(smc_aqi_pop, "smc_aqi_pop.rds")
+
+smc_aqi_pop <- read_rds("smc_aqi_pop.rds")
+
+aqi_pal <- colorNumeric(
+  palette = "Purples",
+  domain = smc_aqi_pop$AQI
+)
+
+leaflet() %>%
+  addProviderTiles(provider = providers$CartoDB.Positron) %>%
+  addPolygons(data = smc_aqi_pop %>% st_transform(4326),
+              fillColor = ~aqi_pal(AQI),
+              color = "white",
+              opacity = 0.5,
+              fillOpacity = 0.8,
+              weight = 1,
+              label = ~paste0(
+                "Average weekly AQI ", round(AQI), " in CBG", GEOID, " with ", pop, " population"
+              ))
+
+mapview(smc_aqi_pop, zcol = "AQI") +
+  mapview(smc_aqi_pop %>% st_centroid(), zcol = "pop", cex = "pop")
+
+smc_aqi_pop <- read_rds("smc_aqi_pop.rds")
+
+smc_pop_plot <- smc_aqi_pop %>%
+  filter(Location == "inside") %>%
+  group_by(AQI_level) %>%
+  summarize(pop = sum(pop, na.rm = T))
+saveRDS(smc_pop_plot, "smc_pop_plot.rds") 
+```
+
+```{r pop-plot}
+smc_pop_plot <- read_rds("smc_pop_plot.rds")
+smc_pop_plot %>% 
+  ggplot() +
+  geom_bar(
+    aes(x = AQI_level,
+        y = pop),
+    stat = "identity"
+  ) + 
+  labs(
+    x = "AQI level",
+    y = "Population",
+    title = "Population exposure"
+  )
+```
+
+```{r smc-tenure-data-processing}
+smc_pop_tenure_units <-
+  getCensus(
+    name = "acs/acs5",
+    vintage = 2019,
+    region = "block group:*", 
+    regionin = "state:06+county:081",
+    vars = "group(B25033)"
+  ) %>% 
+  mutate(
+    cbg =
+      paste0(state,county,tract,block_group)
+  ) %>% 
+  select(!c(GEO_ID,state,county,tract,block_group,NAME) & !ends_with(c("EA","MA","M"))) %>%
+  pivot_longer(
+    ends_with("E"),
+    names_to = "variable",
+    values_to = "estimate"
+  ) %>%
+  left_join(
+    acs_vars_2019_5yr %>% 
+      select(name, label), 
+    by = c("variable" = "name")
+  ) %>% 
+  select(-variable) %>% 
+  separate(
+    label,
+    into = c(NA,NA,"tenure","units_in_structure"),
+    sep = "!!"
+  ) 
+
+smc_tenure <- 
+  smc_pop_tenure_units %>%
+  filter(
+    is.na(units_in_structure),
+    !is.na(tenure)
+  ) %>%
+  select(-units_in_structure)
+
+smc_tenure <- smc_tenure %>%
+  mutate(
+    tenure = case_when(
+      tenure == "Owner occupied:" ~ "Owner",
+      tenure == "Renter occupied:" ~ "Renter"
+    )
+  ) %>%
+  pivot_wider(
+    names_from = "tenure",
+    values_from = "estimate"
+  )
+```
+
+```{r smc-tenure-plot}
+plot(smc_in_voronoi_cbg$AQI)
+
+smc_equity <-
+  smc_in_voronoi_cbg %>%
+  mutate(
+    AQI_level = case_when(
+      AQI > 50 ~ "Bad", 
+      AQI <= 50 & AQI > 30 ~ "Moderate",
+      AQI <= 30 & AQI > 20 ~ "Good",
+      AQI <= 20 ~ "Very good"
+    )
+  ) %>%
+  left_join(smc_tenure, by = c("GEOID" = "cbg"))
+
+smc_tenure_plot <-
+  smc_equity %>% #having geometry for each CBGs
+  group_by(
+    AQI_level
+  ) %>%
+  summarize(
+    Owner = sum(Owner),
+    Renter = sum(Renter)
+  ) %>%
+  st_drop_geometry() %>%
+  pivot_longer(
+    cols = c("Owner", "Renter"),
+    names_to = "tenure",
+    values_to = "estimate"
+  )
+
+saveRDS(smc_tenure_plot, "smc_tenure_plot.rds")
+```
+
+```{r tenure-plot}
+smc_tenure_plot <- read_rds("smc_tenure_plot.rds")
+
+smc_tenure_plot %>%
+  ggplot() +
+  geom_bar(
+    aes(
+      x = AQI_level %>% factor(levels = rev(c("Very good", "Good", "Moderate", "Bad"))),
+      y = estimate,
+      fill = tenure
+    ),
+    stat = "identity",
+    position = "fill"
+  ) + 
+  labs(
+    x = "AQI level",
+    y = "Population",
+    title = "San Mateo County AQI level by tenure",
+    fill = "Household tenure"
+  ) + coord_flip()
+```
+
+```{r smc-income-data-processing}
+smc_income <-
+  getCensus(
+    name = "acs/acs5",
+    vintage = 2019,
+    region = "block group:*",
+    regionin = "state:06+county:081",
+    vars = "group(B19001)"
+  ) %>%
+  mutate(
+    cbg =
+      paste0(state,county,tract,block_group)
+  ) %>%
+  select(!c(GEO_ID,state,NAME) & !ends_with(c("EA","MA","M"))) %>%
+  pivot_longer(
+    ends_with("E"),
+    names_to = "name",
+    values_to = "estimate"
+  ) %>%
+  left_join(
+    acs_vars_2019_5yr %>% 
+      select(name, label)
+  ) %>% 
+  select(-name) %>% 
+  separate(
+    label,
+    into = c(NA,NA,"income"),
+    sep = "!!"
+  ) %>% 
+  filter(!is.na(income)) %>%
+  select(cbg, estimate, income)
+
+saveRDS(smc_income, "smc_income.rds")
+```
+
+```{r smc-income-plot-processing}
+smc_income_plot <-
+  smc_in_voronoi_cbg %>%
+  mutate(
+    AQI_level = case_when(
+      AQI > 50 ~ "Bad", 
+      AQI <= 50 & AQI > 30 ~ "Moderate",
+      AQI <= 30 & AQI > 20 ~ "Good",
+      AQI <= 20 ~ "Very good"
+    )
+  ) %>%
+  left_join(smc_income, by = c("GEOID" = "cbg"))
+
+smc_income_plot <- smc_income_plot %>% #having geometry for each CBGs
+  group_by(
+    AQI_level, income
+  ) %>%
+  summarize(estimate = sum(estimate)) %>%
+  st_drop_geometry()
+
+saveRDS(smc_income_plot, "smc_income_plot.rds")
+
+unique(smc_income$income)
+```
+
+```{r smc-income-plot}
+smc_income_plot<-read_rds("smc_income_plot.rds")
+smc_income_plot %>% #having geometry for each CBGs
+  ggplot() +
+  geom_bar(
+    aes(
+      x = AQI_level %>% factor(levels = rev(c("Very good", "Good", "Moderate", "Bad"))),
+      y = estimate,
+      fill = income %>% factor(levels = rev(unique(smc_income_plot$income)))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) + 
+  labs(
+    x = "AQI level",
+    y = "Population",
+    title = "San Mateo County AQI level by income",
+    fill = "Income level"
+  ) + coord_flip()
+```
+
+```{r smc-race-data-processing}
+dec_vars_2020 <-
+  listCensusMetadata(
+    name = "2020/dec/pl",
+    type = "variables"
+  )
+
+smc_race <- 
+  getCensus(
+    name = "dec/pl",
+    vintage = 2020,
+    region = "block:*",
+    regionin = "state:06+county:081",
+    vars = "group(P1)"
+  ) %>% 
+  mutate(
+    block =
+      paste0(state,county,tract,block)
+  ) %>% 
+  select(!c(GEO_ID,state,county,tract,NAME) & !ends_with(c("NA"))) %>% 
+  pivot_longer(
+    ends_with("N"),
+    names_to = "name",
+    values_to = "estimate"
+  ) %>%
+  left_join(
+    dec_vars_2020 %>% 
+      select(name, label)
+  ) %>% 
+  select(-name) %>% 
+  separate(
+    label,
+    into = c(NA,NA,"category1","category2"),
+    sep = "!!")
+
+smc_race_plot <- 
+  smc_race %>%
+  filter(!is.na(category1)) %>%
+  mutate(
+    race = case_when(
+      category1 == "Population of one race:" ~category2,
+      category1 == "Population of two or more races:" ~ "More than one race"
+    )
+  ) %>% filter(!is.na(race)) %>%
+  select(-category1, -category2) %>%
+  group_by(block,race) %>%
+  summarize(
+    estimate = sum(estimate)
+  ) %>%
+  mutate(
+    cbg = substr(block, 1,12)
+  ) %>%
+  group_by(cbg,race) %>%
+  summarize(estimate = sum(estimate))
+
+smc_race_plot <-
+  smc_in_voronoi_cbg %>%
+  mutate(
+    AQI_level = case_when(
+      AQI > 50 ~ "Bad", 
+      AQI <= 50 & AQI > 30 ~ "Moderate",
+      AQI <= 30 & AQI > 20 ~ "Good",
+      AQI <= 20 ~ "Very good"
+    )
+  ) %>%
+  left_join(smc_race_plot, by = c("GEOID" = "cbg")) %>%
+  st_drop_geometry() 
+saveRDS(smc_race_plot, "smc_race_plot.rds")
+```
+
+There are significant amount of Asian people living in bad air quality area.
+```{r smc-race-plotting}
+smc_race_plot <- read_rds("smc_race_plot.rds")
+
+smc_race_plot %>% #having geometry for each CBGs
+  ggplot() +
+  geom_bar(
+    aes(
+      x = AQI_level %>% factor(levels = rev(c("Very good", "Good", "Moderate", "Bad"))),
+      y = estimate,
+      fill = race %>% factor(levels = rev(unique(smc_race_plot$race)))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) + 
+  labs(
+    x = "AQI level",
+    y = "Population",
+    title = "San Mateo County AQI level by race",
+    fill = "race level"
+  ) + coord_flip()
+```
+
+```{r}
+names(test)
+
+test <- smc_race_plot %>%
+  rename(category = race)
+
+saveRDS(test, "dash_race_plot.rds")
+```
+
