@@ -7,7 +7,7 @@ Demo project analysis on sustainable urban systems
 - complete communities ([my case study in SF](https://spencer-in-github.github.io/sz-218Y.io/SpencerZhang_A2))
 - mobility
 - GHG emissions from mobility sector and the built environment ([my case study in 94108](https://spencer-in-github.github.io/sz-218Y.io/spencerzhang_A3_writeup))
-- risk and resilience analysis
+- risk and resilience analysis ([my flooding case study in Foster City in response to its levee construction](https://spencer-in-github.github.io/sz-218Y.io/spencerzhang_A4))
 - ...
 
 ## What this repo consists of?
