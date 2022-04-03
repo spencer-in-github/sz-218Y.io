@@ -2,7 +2,7 @@
 title: "Housing burden analysis in EPA under current OPA proceedings"
 author: "Spencer Zhang"
 date: "1/15/2022"
-output: bookdown::html_document2
+output: rmdformats::robobook
 editor_options: 
   chunk_output_type: console
   markdown: 
@@ -725,15 +725,12 @@ values_own %>%
 
 ```{r renter-income}
 rent_income <-
-  1:4 %>%
-  map_dfr(function(x){
     getCensus(
     name = "acs/acs5",
     vintage = 2019,
     region = "block group:*", 
     regionin = paste0("state:06+county:081"),
-    vars = "group(B25074)") #TENURE BY UNITS IN STRUCTURE
-    }) %>%
+    vars = "group(B25074)") %>% #TENURE BY UNITS IN STRUCTURE 
   select(!ends_with(c("EA","MA","M"))) %>%
   filter(GEO_ID %in% epa_bgs$AFFGEOID) %>%
   select(!c(state,NAME)) %>%
@@ -802,3 +799,7 @@ Severely burdened tenants concentrate in the south side of the Bayshore Fwy, mos
 The sales of such multifamily units are given priority to qualified non-profits, whose qualification and responsibility stay obscure till this point of OPA proceedings.
 If the OPA is targeted to address the housing burden in EPA, it neglects the commonly shared burden on landowners and didn't provide any substantial subsidy benefits.
 Further observation and analysis is required for the validity of OPA on EPA housing burden issues.
+
+# Source code
+
+full analysis code can be accessed at: <https://github.com/spencer-in-github/sz-218Y.io/blob/main/spencerzhang_A1.Rmd>
