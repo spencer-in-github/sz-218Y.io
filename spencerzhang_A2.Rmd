@@ -1,8 +1,8 @@
 ---
-title: "Complete community analysis - San Francisco Case Study"
+title: "A \"Complete Community\" configuration and assessment: Case Study in San Francisco, CA"
 author: "Spencer Zhang"
 date: "2/1/2022"
-output: bookdown::html_document2
+output: rmdformats::robobook
 ---
 
 ```{r setup, include=FALSE}
@@ -795,3 +795,8 @@ leaflet() %>%
 # Conclusion
 
 In conclusion, San Francisco as a dense urban area, has most of its amenities within reasonable reach if we assume all residents have access to a car. The walkability of the city still has space for improvement. Given the hill terrain of the city, biking may not be a feasible way of transportation for certain groups of population. Given the number of amenities within the SF area compared to other areas of the Bay in Fig \@ref(fig:map-of-chosen-pois), we can anticipate the results would be vastly different in other areas in the Bay.
+
+# Source code
+
+Full analysis code can be accessed at: https://github.com/spencer-in-github/sz-218Y.io/blob/main/spencerzhang_A2.Rmd 
+
